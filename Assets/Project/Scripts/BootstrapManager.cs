@@ -5,6 +5,7 @@ using Fusion;
 public class BootstrapManager : MonoBehaviour
 {
     [SerializeField] private string _mainMenuSceneName = "MainMenu";
+    [SerializeField] private GameObject _networkRunnerPrefab; // Reference to the prefab
 
     private NetworkRunnerHandler _networkRunnerHandler;
 
@@ -13,19 +14,11 @@ public class BootstrapManager : MonoBehaviour
         DontDestroyOnLoad(gameObject);
         Debug.Log("Bootstrap initialized");
 
-        // Create or find NetworkRunnerHandler
-        _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>();
-        if (_networkRunnerHandler == null)
-        {
-            GameObject networkRunnerObject = new GameObject("NetworkRunner");
-            _networkRunnerHandler = networkRunnerObject.AddComponent<NetworkRunnerHandler>();
-            networkRunnerObject.AddComponent<NetworkRunner>();
-            networkRunnerObject.AddComponent<NetworkSceneManagerDefault>();
-            networkRunnerObject.AddComponent<PlayerInput>();
-            DontDestroyOnLoad(networkRunnerObject);
-        }
+        // Instantiate the NetworkRunner prefab instead of creating components
+        GameObject networkRunnerObject = Instantiate(_networkRunnerPrefab);
+        DontDestroyOnLoad(networkRunnerObject);
 
-        // Set up any other core systems here
+        _networkRunnerHandler = networkRunnerObject.GetComponent<NetworkRunnerHandler>();
 
         // Load the main menu scene
         SceneManager.LoadScene(_mainMenuSceneName);

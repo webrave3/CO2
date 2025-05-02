@@ -12,7 +12,6 @@ public enum GameState
 
 public class GameStateManager : NetworkBehaviour
 {
-    // Remove OnChanged attribute
     [Networked]
     public GameState State { get; set; } = GameState.Lobby;
 
@@ -20,8 +19,6 @@ public class GameStateManager : NetworkBehaviour
     public static GameStateManager Instance { get; private set; }
 
     // Player ready status
-    private Dictionary<PlayerRef, bool> _playerReadyStatus = new Dictionary<PlayerRef, bool>();
-
     [Networked]
     public NetworkDictionary<PlayerRef, NetworkBool> PlayersReady => default;
 
@@ -41,6 +38,12 @@ public class GameStateManager : NetworkBehaviour
         if (Object.HasStateAuthority)
         {
             State = GameState.Lobby;
+        }
+
+        // Initialize the dictionary if needed
+        if (PlayersReady.Count == 0 && Object.HasStateAuthority)
+        {
+            PlayersReady.Clear(); // Ensure it's empty
         }
     }
 
@@ -74,10 +77,15 @@ public class GameStateManager : NetworkBehaviour
         }
     }
 
-    // Remove RequireStateAuthority attribute
-    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    // Fix RPC by removing any additional attributes
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     public void RPC_SetPlayerReady(PlayerRef player, bool isReady)
     {
+        Debug.Log($"RPC_SetPlayerReady called for player {player}, ready: {isReady}");
+
+        // Make sure this only executes on the State Authority (server)
+        if (!Object.HasStateAuthority) return;
+
         if (PlayersReady.ContainsKey(player))
         {
             PlayersReady.Set(player, isReady);
@@ -109,19 +117,19 @@ public class GameStateManager : NetworkBehaviour
         if (allReady && PlayersReady.Count > 0)
         {
             Debug.Log("All players ready, game could start now");
-            // Optionally auto-start, or wait for host to press start
-            // StartGame();
         }
     }
 
-    // Remove RequireStateAuthority attribute
-    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    // Fix RPC by removing any additional attributes
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     public void RPC_StartGame()
     {
-        if (Object.HasStateAuthority)
-        {
-            State = GameState.Playing;
-            OnGameStateChanged();
-        }
+        Debug.Log("RPC_StartGame called");
+
+        // Make sure this only executes on the State Authority (server)
+        if (!Object.HasStateAuthority) return;
+
+        State = GameState.Playing;
+        OnGameStateChanged();
     }
 }

@@ -1,49 +1,64 @@
 using UnityEngine;
 using Fusion;
-using UnityEngine.InputSystem;
 using Fusion.Sockets;
 using System.Collections.Generic;
 using System;
 
-[RequireComponent(typeof(NetworkRunner))]
 public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
 {
     private Vector2 _moveInput;
     private Vector2 _lookInput;
     private bool _jumpInput;
 
-    // These methods will be called automatically by the Input System
-    // Make sure they match the names in your Input Actions asset
-    public void OnMove(InputValue value)
+    private NetworkRunner _runner;
+
+    private void Awake()
     {
-        _moveInput = value.Get<Vector2>();
-        Debug.Log($"Move input: {_moveInput}");
+        _runner = GetComponent<NetworkRunner>();
     }
 
-    public void OnLook(InputValue value)
+    private void Update()
     {
-        _lookInput = value.Get<Vector2>();
-        Debug.Log($"Look input: {_lookInput}");
-    }
+        // Get direct input from Unity's Input system
+        _moveInput.x = Input.GetAxis("Horizontal");
+        _moveInput.y = Input.GetAxis("Vertical");
 
-    public void OnJump(InputValue value)
-    {
-        _jumpInput = value.isPressed;
-        Debug.Log($"Jump input: {_jumpInput}");
+        // Explicitly track raw mouse movement regardless of cursor state
+        float mouseX = Input.GetAxis("Mouse X");
+        float mouseY = Input.GetAxis("Mouse Y");
+        _lookInput = new Vector2(mouseX, mouseY);
+
+        // Force debug output for mouse movement
+        if (Mathf.Abs(mouseX) > 0.01f || Mathf.Abs(mouseY) > 0.01f)
+        {
+            Debug.Log($"RAW MOUSE: X={mouseX:F3}, Y={mouseY:F3}");
+        }
+
+        _jumpInput = Input.GetKey(KeyCode.Space);
     }
 
     public void OnInput(NetworkRunner runner, NetworkInput input)
     {
+        // Make sure we have a valid runner
+        if (runner == null || !runner.IsRunning)
+            return;
+
         var data = new NetworkInputData();
 
-        // Transfer the gathered input to our networked input struct
+        // Transfer input to networked struct
         data.HorizontalInput = _moveInput.x;
         data.VerticalInput = _moveInput.y;
         data.MouseDelta = _lookInput;
         data.Jump = _jumpInput;
 
-        // Submit to Fusion network
+        // Submit to network
         input.Set(data);
+
+        // Debug output
+        if (_moveInput.magnitude > 0.1f || _lookInput.magnitude > 0.1f)
+        {
+            Debug.Log($"Submitting network input: H={data.HorizontalInput:F2}, V={data.VerticalInput:F2}, MouseX={_lookInput.x:F2}, MouseY={_lookInput.y:F2}");
+        }
     }
 
     // Required INetworkRunnerCallbacks methods

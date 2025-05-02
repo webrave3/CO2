@@ -18,6 +18,9 @@ public class LobbyManager : NetworkBehaviour
     private Dictionary<PlayerRef, GameObject> _playerReadyEntries = new Dictionary<PlayerRef, GameObject>();
     private NetworkRunnerHandler _networkRunnerHandler;
 
+    // Add debug info
+    [SerializeField] private TextMeshProUGUI _debugText;
+
     private void Awake()
     {
         _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>();
@@ -30,6 +33,7 @@ public class LobbyManager : NetworkBehaviour
 
     public override void Spawned()
     {
+        RepositionUI();
         if (_startGameButton != null)
         {
             // Only show the start button for the host
@@ -43,6 +47,11 @@ public class LobbyManager : NetworkBehaviour
 
         // Set up player ready list
         RefreshPlayerReadyList();
+
+        if (_debugText != null)
+        {
+            _debugText.text = $"Player ID: {Runner.LocalPlayer.PlayerId}\nIs Server: {Runner.IsServer}";
+        }
     }
 
     private void OnStartGameClicked()
@@ -53,21 +62,29 @@ public class LobbyManager : NetworkBehaviour
             GameStateManager gameStateManager = FindObjectOfType<GameStateManager>();
             if (gameStateManager != null)
             {
+                // Call RPC directly
                 gameStateManager.RPC_StartGame();
-            }
 
-            // Load the game scene
-            _networkRunnerHandler.LoadScene(_gameSceneName);
+                // Load the game scene - this should be done after game state change
+                if (_networkRunnerHandler != null)
+                {
+                    _networkRunnerHandler.LoadScene(_gameSceneName);
+                }
+            }
         }
     }
 
     private void Update()
     {
-        // Check for ready button press
-        if (Runner != null && Runner.IsRunning && Input.GetKeyDown(KeyCode.Space))
+        // Only attempt to toggle ready if we have a runner and we're in a session
+        if (Runner != null && Runner.IsRunning)
         {
-            // Toggle ready status
-            ToggleReady();
+            // Check for ready button press
+            if (Input.GetKeyDown(KeyCode.Space))
+            {
+                Debug.Log("Space pressed - toggling ready state");
+                ToggleReady();
+            }
         }
     }
 
@@ -83,8 +100,52 @@ public class LobbyManager : NetworkBehaviour
                 currentStatus = readyStatus;
             }
 
-            // Toggle and send to server
+            Debug.Log($"Toggling ready state from {currentStatus} to {!currentStatus}");
+
+            // Call RPC directly
             gameStateManager.RPC_SetPlayerReady(Runner.LocalPlayer, !currentStatus);
+
+            // Update UI immediately for responsiveness (will be overwritten by network state)
+            UpdateReadyUI(Runner.LocalPlayer, !currentStatus);
+        }
+    }
+
+    // Add method to update UI immediately
+    private void UpdateReadyUI(PlayerRef player, bool isReady)
+    {
+        if (_playerReadyEntries.TryGetValue(player, out GameObject entryGO))
+        {
+            UnityEngine.UI.Image readyImage = entryGO.GetComponentInChildren<UnityEngine.UI.Image>();
+            if (readyImage != null)
+            {
+                readyImage.color = isReady ? Color.green : Color.red;
+            }
+        }
+    }
+
+    // Add this method to your LobbyManager class
+    private void RepositionUI()
+    {
+        // Find the Canvas
+        Canvas canvas = GetComponentInChildren<Canvas>();
+        if (canvas != null)
+        {
+            // Make sure it's Screen Space - Overlay
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+
+            // Find the main panel (assuming first child of canvas)
+            RectTransform panel = canvas.transform.GetChild(0) as RectTransform;
+            if (panel != null)
+            {
+                // Set anchor to right side
+                panel.anchorMin = new Vector2(0.7f, 0);
+                panel.anchorMax = new Vector2(1, 1);
+                panel.pivot = new Vector2(0.5f, 0.5f);
+                panel.anchoredPosition = Vector2.zero;
+
+                // Adjust size to fit
+                panel.sizeDelta = Vector2.zero;
+            }
         }
     }
 

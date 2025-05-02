@@ -1,6 +1,9 @@
 using UnityEngine;
 using Fusion;
 using Fusion.Addons.SimpleKCC;
+using System;
+using System.Collections;
+using TMPro;
 
 public class PlayerController : NetworkBehaviour
 {
@@ -16,6 +19,7 @@ public class PlayerController : NetworkBehaviour
 
     private bool _cursorLocked = false;
     private PlayerReadyUI _playerReadyUI;
+    private float _verticalLookRotation = 0f;  // Track vertical look angle
 
     private void Awake()
     {
@@ -49,6 +53,9 @@ public class PlayerController : NetworkBehaviour
 
         // Update player models based on scene
         UpdatePlayerVisuals();
+
+        // Create player name display
+        UpdatePlayerDisplayName();
 
         if (HasInputAuthority)
         {
@@ -87,34 +94,88 @@ public class PlayerController : NetworkBehaviour
     {
         if (GetInput(out NetworkInputData data))
         {
-            // Apply gameplay input only if the cursor is locked (active gameplay)
-            if (_cursorLocked || IsInLobby)
+            // Calculate movement direction
+            Vector3 moveDirection = new Vector3(data.HorizontalInput, 0, data.VerticalInput).normalized;
+
+            // Apply movement to SimpleKCC
+            Vector3 moveVelocity = transform.rotation * moveDirection * _moveSpeed;
+            _kcc.Move(moveVelocity);
+
+            // Debug any non-zero mouse input
+            if (data.MouseDelta.magnitude > 0.01f)
             {
-                // Calculate movement direction
-                Vector3 moveDirection = new Vector3(data.HorizontalInput, 0, data.VerticalInput).normalized;
+                Debug.Log($"Mouse input: X={data.MouseDelta.x:F2}, Y={data.MouseDelta.y:F2}");
+            }
 
-                // Apply movement to SimpleKCC
-                Vector3 moveVelocity = transform.rotation * moveDirection * _moveSpeed;
-                _kcc.Move(moveVelocity);
+            // Only apply look rotation if cursor is locked
+            if (_cursorLocked)
+            {
+                // Horizontal rotation (yaw) - rotate the whole character
+                _kcc.AddLookRotation(new Vector2(data.MouseDelta.x * _lookSensitivity, 0));
 
-                // Apply look rotation (only if cursor is locked)
-                if (_cursorLocked)
+                // Vertical rotation (pitch) - only rotate the camera
+                if (_camera != null)
                 {
-                    _kcc.AddLookRotation(new Vector2(-data.MouseDelta.y * _lookSensitivity, data.MouseDelta.x * _lookSensitivity));
+                    // Update our tracked vertical angle
+                    _verticalLookRotation -= data.MouseDelta.y * _lookSensitivity;
+
+                    // Clamp to avoid over-rotation
+                    _verticalLookRotation = Mathf.Clamp(_verticalLookRotation, -85f, 85f);
+
+                    // Apply rotation to camera
+                    _camera.transform.localRotation = Quaternion.Euler(_verticalLookRotation, 0, 0);
                 }
             }
         }
     }
 
-    public void LateUpdate()
+    private void UpdatePlayerDisplayName()
     {
-        // Only update camera for the local player
-        if (HasInputAuthority && _camera != null && _cursorLocked)
+        // Create a simple text display if none exists
+        Transform nameDisplayTransform = transform.Find("NameDisplay");
+        TextMeshPro nameText = null;
+
+        if (nameDisplayTransform == null)
         {
-            // Get current pitch rotation from KCC for camera
-            Vector2 lookRotation = _kcc.GetLookRotation(true, false);
-            _camera.transform.localRotation = Quaternion.Euler(lookRotation.x, 0, 0);
+            GameObject nameDisplay = new GameObject("NameDisplay");
+            nameDisplay.transform.SetParent(transform);
+            nameDisplay.transform.localPosition = new Vector3(0, 2f, 0);
+            nameDisplay.transform.localRotation = Quaternion.identity;
+
+            nameText = nameDisplay.AddComponent<TextMeshPro>();
+            nameText.fontSize = 5;
+            nameText.alignment = TextAlignmentOptions.Center;
+            nameText.rectTransform.sizeDelta = new Vector2(5, 1);
         }
+        else
+        {
+            nameText = nameDisplayTransform.GetComponent<TextMeshPro>();
+        }
+
+        // Set the name
+        if (nameText != null)
+        {
+            string playerName = "Player" + Runner.LocalPlayer.PlayerId;
+
+            if (HasInputAuthority)
+            {
+                playerName = PlayerPrefs.GetString("PlayerName", playerName);
+                nameText.text = playerName + "\n(YOU)";
+                nameText.color = Color.green;
+            }
+            else
+            {
+                nameText.text = playerName;
+                nameText.color = Color.white;
+            }
+        }
+    }
+
+    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    private void SetNetworkNameRpc(string name)
+    {
+        // This is just a placeholder in case we want to sync names later
+        Debug.Log($"Player {Object.InputAuthority.PlayerId} set name to: {name}");
     }
 
     private void LockCursor()
@@ -145,6 +206,13 @@ public class PlayerController : NetworkBehaviour
                     UnlockCursor();
                 else
                     LockCursor();
+            }
+
+            // Make name display face the camera
+            Transform nameDisplay = transform.Find("NameDisplay");
+            if (nameDisplay != null && Camera.main != null)
+            {
+                nameDisplay.rotation = Camera.main.transform.rotation;
             }
         }
     }
