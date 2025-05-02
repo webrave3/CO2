@@ -8,8 +8,14 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private Camera _camera;
     [SerializeField] private float _moveSpeed = 5f;
     [SerializeField] private float _lookSensitivity = 2f;
+    [SerializeField] private GameObject _lobbyModel;
+    [SerializeField] private GameObject _gameplayModel;
+
+    [Networked]
+    public NetworkBool IsInLobby { get; set; } = true;
 
     private bool _cursorLocked = false;
+    private PlayerReadyUI _playerReadyUI;
 
     private void Awake()
     {
@@ -25,11 +31,24 @@ public class PlayerController : NetworkBehaviour
             Debug.LogError("Camera not assigned to PlayerController");
             _camera = GetComponentInChildren<Camera>();
         }
+
+        _playerReadyUI = GetComponent<PlayerReadyUI>();
+        if (_playerReadyUI == null && Application.isPlaying)
+        {
+            _playerReadyUI = gameObject.AddComponent<PlayerReadyUI>();
+        }
     }
 
     public override void Spawned()
     {
         Debug.Log($"Player spawned - HasInputAuthority: {HasInputAuthority}, HasStateAuthority: {HasStateAuthority}");
+
+        // Determine if we're in the lobby or game scene
+        string currentScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+        IsInLobby = currentScene.Contains("Lobby");
+
+        // Update player models based on scene
+        UpdatePlayerVisuals();
 
         if (HasInputAuthority)
         {
@@ -45,7 +64,15 @@ public class PlayerController : NetworkBehaviour
                 Debug.Log("Player camera activated");
             }
 
-            LockCursor();
+            // In lobby, cursor should be visible for UI interaction
+            if (IsInLobby)
+            {
+                UnlockCursor();
+            }
+            else
+            {
+                LockCursor();
+            }
         }
         else
         {
@@ -60,26 +87,21 @@ public class PlayerController : NetworkBehaviour
     {
         if (GetInput(out NetworkInputData data))
         {
-            // Debug log input data
-            if (data.HorizontalInput != 0 || data.VerticalInput != 0 || data.MouseDelta.sqrMagnitude > 0)
+            // Apply gameplay input only if the cursor is locked (active gameplay)
+            if (_cursorLocked || IsInLobby)
             {
-                Debug.Log($"Network Input: Move({data.HorizontalInput}, {data.VerticalInput}), Mouse({data.MouseDelta.x}, {data.MouseDelta.y})");
-            }
+                // Calculate movement direction
+                Vector3 moveDirection = new Vector3(data.HorizontalInput, 0, data.VerticalInput).normalized;
 
-            // Calculate movement direction
-            Vector3 moveDirection = new Vector3(data.HorizontalInput, 0, data.VerticalInput).normalized;
+                // Apply movement to SimpleKCC
+                Vector3 moveVelocity = transform.rotation * moveDirection * _moveSpeed;
+                _kcc.Move(moveVelocity);
 
-            // Apply movement to SimpleKCC
-            Vector3 moveVelocity = transform.rotation * moveDirection * _moveSpeed;
-            _kcc.Move(moveVelocity);
-
-            // Apply look rotation
-            _kcc.AddLookRotation(new Vector2(-data.MouseDelta.y * _lookSensitivity, data.MouseDelta.x * _lookSensitivity));
-
-            // Debug log movement
-            if (moveDirection.sqrMagnitude > 0)
-            {
-                Debug.Log($"Moving: {moveVelocity}, Rotation: {transform.rotation.eulerAngles}");
+                // Apply look rotation (only if cursor is locked)
+                if (_cursorLocked)
+                {
+                    _kcc.AddLookRotation(new Vector2(-data.MouseDelta.y * _lookSensitivity, data.MouseDelta.x * _lookSensitivity));
+                }
             }
         }
     }
@@ -87,7 +109,7 @@ public class PlayerController : NetworkBehaviour
     public void LateUpdate()
     {
         // Only update camera for the local player
-        if (HasInputAuthority && _camera != null)
+        if (HasInputAuthority && _camera != null && _cursorLocked)
         {
             // Get current pitch rotation from KCC for camera
             Vector2 lookRotation = _kcc.GetLookRotation(true, false);
@@ -113,12 +135,38 @@ public class PlayerController : NetworkBehaviour
 
     private void Update()
     {
-        if (HasInputAuthority && Input.GetKeyDown(KeyCode.Escape))
+        if (HasInputAuthority)
         {
-            if (_cursorLocked)
-                UnlockCursor();
-            else
-                LockCursor();
+            // In the lobby, we want the cursor to be visible for UI interaction
+            // But in the game, we toggle with Escape
+            if (!IsInLobby && Input.GetKeyDown(KeyCode.Escape))
+            {
+                if (_cursorLocked)
+                    UnlockCursor();
+                else
+                    LockCursor();
+            }
+        }
+    }
+
+    public void UpdatePlayerVisuals()
+    {
+        if (_lobbyModel != null)
+            _lobbyModel.SetActive(IsInLobby);
+
+        if (_gameplayModel != null)
+            _gameplayModel.SetActive(!IsInLobby);
+    }
+
+    // Called when the game state changes from Lobby to Playing
+    public void OnGameStart()
+    {
+        IsInLobby = false;
+        UpdatePlayerVisuals();
+
+        if (HasInputAuthority)
+        {
+            LockCursor();
         }
     }
 }
