@@ -11,8 +11,8 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
     [SerializeField] private bool _invertMouseY = false;
 
     [Header("Debug Options")]
-    [SerializeField] private bool _debugInput = true;
-    [SerializeField] private float _debugLogInterval = 0.5f; // Only log every 0.5 seconds
+    [SerializeField] private bool _debugInput = false;
+    [SerializeField] private float _debugLogInterval = 0.5f;
 
     private Vector2 _moveInput;
     private Vector2 _lookInput;
@@ -43,11 +43,14 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
 
     private void Update()
     {
+        // Only collect input if the game is running
+        if (!Application.isFocused) return;
+
         // Get direct input from Unity's Input system - these will be passed to network
         _moveInput.x = Input.GetAxisRaw("Horizontal");
         _moveInput.y = Input.GetAxisRaw("Vertical");
 
-        // Explicitly track raw mouse movement with enhanced sensitivity
+        // Explicitly track raw mouse movement with sensitivity applied
         float mouseX = Input.GetAxisRaw("Mouse X") * _mouseSensitivityMultiplier;
         float mouseY = Input.GetAxisRaw("Mouse Y") * _mouseSensitivityMultiplier;
 
@@ -55,6 +58,7 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
         if (_invertMouseY)
             mouseY = -mouseY;
 
+        // Store raw delta for this frame
         _lookInput = new Vector2(mouseX, mouseY);
 
         // Debug output for mouse movement - throttled to avoid spam
@@ -72,8 +76,12 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
 
     public void OnInput(NetworkRunner runner, NetworkInput input)
     {
-        // Make sure we have a valid runner
+        // Make sure we have a valid runner and we're connected
         if (runner == null || !runner.IsRunning)
+            return;
+
+        // Only provide input if this is the local player
+        if (!runner.IsPlayer)
             return;
 
         var data = new NetworkInputData();
@@ -81,7 +89,10 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
         // Transfer input to networked struct
         data.HorizontalInput = _moveInput.x;
         data.VerticalInput = _moveInput.y;
+
+        // Important: Pass the raw mouse delta, not accumulated rotation
         data.MouseDelta = _lookInput;
+
         data.Jump = _jumpInput;
 
         // Submit to network

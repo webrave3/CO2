@@ -125,6 +125,8 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
+    // Replace only the OnPlayerJoined method in NetworkRunnerHandler.cs
+
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
     {
         Debug.Log($"Player {player} joined");
@@ -145,12 +147,17 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
 
                 try
                 {
+                    // KEY FIX: Pass player as input authority for their own character
                     NetworkObject networkPlayerObject = runner.Spawn(_playerPrefab, spawnPosition, spawnRotation, player);
 
                     if (networkPlayerObject != null)
                     {
-                        Debug.Log($"Player {player} spawned successfully");
+                        Debug.Log($"Player {player} spawned successfully with InputAuthority");
                         _spawnedCharacters.Add(player, networkPlayerObject);
+
+                        // Additional verification
+                        Debug.Log($"Player {player} - HasInputAuthority: {networkPlayerObject.HasInputAuthority}");
+                        Debug.Log($"Player {player} - InputAuthority: {networkPlayerObject.InputAuthority}");
                     }
                     else
                     {

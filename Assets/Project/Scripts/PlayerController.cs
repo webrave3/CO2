@@ -1,6 +1,7 @@
 using UnityEngine;
 using Fusion;
 using Fusion.Addons.SimpleKCC;
+using System.Collections;
 
 public class PlayerController : NetworkBehaviour
 {
@@ -18,12 +19,17 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private float _cameraMinY = -80f;
 
     [Header("Debug")]
-    [SerializeField] private bool _showDebugInfo = true;
+    [SerializeField] private bool _showDebugInfo = false;
 
     private bool _cursorLocked = false;
-
-    // For jump
     private bool _jumpConsumed = false;
+
+    // Store pitch and yaw separately as Networked values
+    [Networked]
+    private float _networkPitch { get; set; }
+
+    [Networked]
+    private float _networkYaw { get; set; }
 
     private void Awake()
     {
@@ -37,6 +43,8 @@ public class PlayerController : NetworkBehaviour
 
     public override void Spawned()
     {
+        Debug.Log($"Player Spawned - HasInputAuthority: {HasInputAuthority}, InputAuthority: {Object.InputAuthority}, Runner.LocalPlayer: {Runner.LocalPlayer}");
+
         if (HasInputAuthority)
         {
             Debug.Log("This is the local player, setting up input and camera");
@@ -57,9 +65,26 @@ public class PlayerController : NetworkBehaviour
         }
         else
         {
+            Debug.Log($"This is a remote player (ID: {Object.InputAuthority}), disabling camera");
             // Disable camera for remote players
             if (_camera != null)
                 _camera.gameObject.SetActive(false);
+        }
+
+        // Add delayed authority check to handle timing issues
+        StartCoroutine(DelayedAuthorityCheck());
+    }
+
+    private IEnumerator DelayedAuthorityCheck()
+    {
+        yield return null; // Wait one frame
+        Debug.Log($"Delayed Authority Check - HasInputAuth: {HasInputAuthority}, InputAuthority: {Object.InputAuthority}");
+
+        if (HasInputAuthority)
+        {
+            // Ensure proper setup for local player
+            if (_camera != null) _camera.gameObject.SetActive(true);
+            LockCursor();
         }
     }
 
@@ -74,29 +99,45 @@ public class PlayerController : NetworkBehaviour
             // Move and handle jumping
             HandleMovement(moveDirection, data.Jump);
 
-            // CAMERA ROTATION - For local player only, use SimpleKCC's methods
+            // CAMERA ROTATION - For local player only
             if (HasInputAuthority && _cursorLocked && data.MouseDelta.magnitude > 0.01f)
             {
                 // Apply mouse delta using SimpleKCC's AddLookRotation
-                // NOTE: AddLookRotation takes (pitchDelta, yawDelta) - NOT the other way around!
                 Vector2 lookDelta = data.MouseDelta * _lookSensitivity;
 
-                // Correct parameter order: pitch first, yaw second
-                // Note: Negative Y so mouse up = look up (standard FPS behavior)
+                // Apply rotation to SimpleKCC directly
                 _kcc.AddLookRotation(-lookDelta.y, lookDelta.x);
+
+                // Store the current rotation in networked variables
+                Vector2 currentRotation = _kcc.GetLookRotation(true, true);
+                _networkPitch = currentRotation.x;
+                _networkYaw = currentRotation.y;
 
                 // Debug rotation if enabled
                 if (_showDebugInfo)
                 {
-                    Vector2 currentRotation = _kcc.GetLookRotation(true, true);
-                    Debug.Log($"Mouse Delta: {data.MouseDelta}, Applied: Pitch={-lookDelta.y:F2}, Yaw={lookDelta.x:F2}, Current: Pitch={currentRotation.x:F1}, Yaw={currentRotation.y:F1}");
+                    Debug.Log($"Local Input: MouseDelta={data.MouseDelta}, Applied: Pitch={-lookDelta.y:F2}, Yaw={lookDelta.x:F2}");
+                    Debug.Log($"Network State: Pitch={_networkPitch:F2}, Yaw={_networkYaw:F2}");
+                    Debug.Log($"KCC State: {currentRotation}");
                 }
+            }
+        }
+
+        // Apply networked rotation to remote players and corrected client state
+        if (!HasInputAuthority || Object.StateAuthority != Object.InputAuthority)
+        {
+            _kcc.SetLookRotation(_networkPitch, _networkYaw);
+
+            if (_showDebugInfo && HasStateAuthority)
+            {
+                Debug.Log($"Server Correcting: Pitch={_networkPitch:F2}, Yaw={_networkYaw:F2}");
             }
         }
     }
 
-    private void LateUpdate()
+    public override void Render()
     {
+        // Camera sync for local player only - uses interpolated/predicted values
         if (HasInputAuthority && _camera != null)
         {
             // Get the current pitch rotation from SimpleKCC
@@ -111,7 +152,7 @@ public class PlayerController : NetworkBehaviour
 
             if (_showDebugInfo)
             {
-                Debug.Log($"Camera pitch set to: {pitch:F1}");
+                Debug.Log($"Render - Camera pitch: {pitch:F1}, HasInputAuth: {HasInputAuthority}");
             }
         }
     }
@@ -148,6 +189,20 @@ public class PlayerController : NetworkBehaviour
             else
                 LockCursor();
         }
+
+        // Debug authority with F1
+        if (Input.GetKeyDown(KeyCode.F1))
+        {
+            Debug.Log($"Authority Check - HasInputAuth: {HasInputAuthority}, InputAuthority: {Object.InputAuthority}, LocalPlayer: {Runner.LocalPlayer}");
+            Debug.Log($"Camera active: {_camera != null && _camera.gameObject.activeSelf}");
+        }
+
+        // Debug input with F2
+        if (Input.GetKeyDown(KeyCode.F2))
+        {
+            _showDebugInfo = !_showDebugInfo;
+            Debug.Log($"Debug info toggled: {_showDebugInfo}");
+        }
     }
 
     private void LockCursor()
@@ -155,6 +210,7 @@ public class PlayerController : NetworkBehaviour
         _cursorLocked = true;
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
+        Debug.Log("Cursor locked");
     }
 
     private void UnlockCursor()
@@ -162,5 +218,12 @@ public class PlayerController : NetworkBehaviour
         _cursorLocked = false;
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
+        Debug.Log("Cursor unlocked");
+    }
+
+    // Called when the object is about to be despawned
+    public override void Despawned(NetworkRunner runner, bool hasState)
+    {
+        Debug.Log($"Player despawned - InputAuthority: {Object.InputAuthority}");
     }
 }
