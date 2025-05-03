@@ -1,7 +1,6 @@
 using UnityEngine;
 using Fusion;
 using Fusion.Addons.SimpleKCC;
-using System.Collections;
 
 public class PlayerController : NetworkBehaviour
 {
@@ -11,17 +10,13 @@ public class PlayerController : NetworkBehaviour
 
     [Header("Movement Settings")]
     [SerializeField] private float _moveSpeed = 5f;
-    [SerializeField] private float _lookSensitivity = 2f;
+    [SerializeField] private float _lookSensitivity = 0.5f; // Reduced sensitivity
     [SerializeField] private float _jumpForce = 5f;
 
     [Header("Camera Settings")]
     [SerializeField] private float _cameraMaxY = 80f;
     [SerializeField] private float _cameraMinY = -80f;
 
-    [Header("Debug")]
-    [SerializeField] private bool _showDebugInfo = false;
-
-    private bool _cursorLocked = false;
     private bool _jumpConsumed = false;
 
     private void Awake()
@@ -36,11 +31,12 @@ public class PlayerController : NetworkBehaviour
 
     public override void Spawned()
     {
-        Debug.Log($"Player Spawned - HasInputAuthority: {HasInputAuthority}, InputAuthority: {Object.InputAuthority}, Runner.LocalPlayer: {Runner.LocalPlayer}");
+        Debug.Log($"Player Spawned - HasInputAuthority: {HasInputAuthority}, ID: {Object.InputAuthority}");
 
+        // Configure based on authority
         if (HasInputAuthority)
         {
-            Debug.Log("This is the local player, setting up input and camera");
+            Debug.Log("This is the local player");
 
             // Disable main camera if it exists
             if (Camera.main != null && Camera.main != _camera)
@@ -53,153 +49,97 @@ public class PlayerController : NetworkBehaviour
                 _camera.tag = "MainCamera";
             }
 
-            // Lock cursor for FPS controls
-            LockCursor();
+            // Lock cursor
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
         }
         else
         {
-            Debug.Log($"This is a remote player (ID: {Object.InputAuthority}), disabling camera");
+            Debug.Log($"This is a remote player (ID: {Object.InputAuthority})");
             // Disable camera for remote players
             if (_camera != null)
                 _camera.gameObject.SetActive(false);
-        }
-
-        // Add delayed authority check to handle timing issues
-        StartCoroutine(DelayedAuthorityCheck());
-    }
-
-    private IEnumerator DelayedAuthorityCheck()
-    {
-        yield return null; // Wait one frame
-        Debug.Log($"Delayed Authority Check - HasInputAuth: {HasInputAuthority}, InputAuthority: {Object.InputAuthority}");
-
-        if (HasInputAuthority)
-        {
-            // Ensure proper setup for local player
-            if (_camera != null) _camera.gameObject.SetActive(true);
-            LockCursor();
         }
     }
 
     public override void FixedUpdateNetwork()
     {
-        // Get network input data
+        // Only process input for objects with Input Authority
         if (GetInput(out NetworkInputData data))
         {
-            // MOVEMENT - Simple and direct
-            Vector3 moveDirection = transform.right * data.HorizontalInput + transform.forward * data.VerticalInput;
+            // Apply look rotation with lower sensitivity
+            _kcc.AddLookRotation(-data.MouseDelta.y * _lookSensitivity, data.MouseDelta.x * _lookSensitivity);
 
-            // Move and handle jumping
-            HandleMovement(moveDirection, data.Jump);
+            // Calculate movement direction
+            Vector3 moveDirection = _kcc.TransformRotation * new Vector3(data.HorizontalInput, 0.0f, data.VerticalInput);
+            Vector3 moveVelocity = moveDirection.normalized * _moveSpeed;
 
-            // CAMERA ROTATION - For local player only
-            if (HasInputAuthority && _cursorLocked && data.MouseDelta.magnitude > 0.01f)
+            // Handle jumping
+            float jumpImpulse = 0f;
+            if (_kcc.IsGrounded)
             {
-                // Apply mouse delta using SimpleKCC's AddLookRotation
-                Vector2 lookDelta = data.MouseDelta * _lookSensitivity;
-
-                // Apply rotation to SimpleKCC
-                _kcc.AddLookRotation(-lookDelta.y, lookDelta.x);
-
-                // Debug rotation if enabled
-                if (_showDebugInfo)
-                {
-                    Vector2 currentRotation = _kcc.GetLookRotation(true, true);
-                    Debug.Log($"Mouse Delta: {data.MouseDelta}, Applied: Pitch={-lookDelta.y:F2}, Yaw={lookDelta.x:F2}, Current Rotation: {currentRotation}");
-                }
+                _jumpConsumed = false;
             }
-        }
-    }
 
-    public override void Render()
-    {
-        // Camera sync for local player only - uses interpolated/predicted values
-        if (HasInputAuthority && _camera != null)
-        {
-            // Get the current pitch rotation from SimpleKCC
-            Vector2 lookRotation = _kcc.GetLookRotation(true, false);
-            float pitch = lookRotation.x;
-
-            // Clamp pitch to prevent looking too far up/down
-            pitch = Mathf.Clamp(pitch, _cameraMinY, _cameraMaxY);
-
-            // Apply pitch to camera
-            _camera.transform.localRotation = Quaternion.Euler(pitch, 0f, 0f);
-
-            if (_showDebugInfo)
+            if (data.Jump && _kcc.IsGrounded && !_jumpConsumed)
             {
-                Debug.Log($"Render - Camera pitch: {pitch:F1}, HasInputAuth: {HasInputAuthority}");
+                jumpImpulse = _jumpForce;
+                _jumpConsumed = true;
             }
+
+            // Apply movement with gravity - SimpleKCC handles gravity internally when enabled in settings
+            _kcc.Move(moveVelocity, jumpImpulse);
         }
     }
 
-    private void HandleMovement(Vector3 moveDirection, bool jumpInput)
+    // Camera sync MUST happen in LateUpdate
+    private void LateUpdate()
     {
-        // Calculate jump impulse
-        float jumpImpulse = 0f;
+        // Only InputAuthority needs to update camera
+        if (!HasInputAuthority || _camera == null)
+            return;
 
-        if (_kcc.IsGrounded)
-        {
-            _jumpConsumed = false;
-        }
+        // Get look rotation from KCC
+        Vector2 lookRotation = _kcc.GetLookRotation(true, false);
 
-        if (jumpInput && _kcc.IsGrounded && !_jumpConsumed)
-        {
-            jumpImpulse = _jumpForce;
-            _jumpConsumed = true;
-        }
+        // Apply pitch to camera with proper clamping
+        float pitch = Mathf.Clamp(lookRotation.x, _cameraMinY, _cameraMaxY);
+        _camera.transform.localRotation = Quaternion.Euler(pitch, 0f, 0f);
 
-        // Apply movement with SimpleKCC's Move method
-        _kcc.Move(moveDirection.normalized * _moveSpeed, jumpImpulse);
+        Debug.Log($"Camera Rotation - Pitch: {pitch:F1}, Local: {_camera.transform.localRotation.eulerAngles}");
     }
 
+    // Handle cursor management
     private void Update()
     {
+        // Only for local player
         if (!HasInputAuthority) return;
 
-        // Toggle cursor lock with Escape
+        // Toggle cursor with Escape
         if (Input.GetKeyDown(KeyCode.Escape))
         {
-            if (_cursorLocked)
-                UnlockCursor();
+            if (Cursor.lockState == CursorLockMode.Locked)
+            {
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
             else
-                LockCursor();
-        }
-
-        // Debug authority with F1
-        if (Input.GetKeyDown(KeyCode.F1))
-        {
-            Debug.Log($"Authority Check - HasInputAuth: {HasInputAuthority}, InputAuthority: {Object.InputAuthority}, LocalPlayer: {Runner.LocalPlayer}");
-            Debug.Log($"Camera active: {_camera != null && _camera.gameObject.activeSelf}");
-        }
-
-        // Debug input with F2
-        if (Input.GetKeyDown(KeyCode.F2))
-        {
-            _showDebugInfo = !_showDebugInfo;
-            Debug.Log($"Debug info toggled: {_showDebugInfo}");
+            {
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
         }
     }
 
-    private void LockCursor()
-    {
-        _cursorLocked = true;
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
-        Debug.Log("Cursor locked");
-    }
-
-    private void UnlockCursor()
-    {
-        _cursorLocked = false;
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
-        Debug.Log("Cursor unlocked");
-    }
-
-    // Called when the object is about to be despawned
     public override void Despawned(NetworkRunner runner, bool hasState)
     {
         Debug.Log($"Player despawned - InputAuthority: {Object.InputAuthority}");
+
+        // Cleanup if needed
+        if (HasInputAuthority)
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
     }
 }
