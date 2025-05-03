@@ -6,32 +6,65 @@ using System;
 
 public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
 {
+    [Header("Input Settings")]
+    [SerializeField] private float _mouseSensitivityMultiplier = 1.0f;
+    [SerializeField] private bool _invertMouseY = false;
+
+    [Header("Debug Options")]
+    [SerializeField] private bool _debugInput = true;
+    [SerializeField] private float _debugLogInterval = 0.5f; // Only log every 0.5 seconds
+
     private Vector2 _moveInput;
     private Vector2 _lookInput;
     private bool _jumpInput;
 
     private NetworkRunner _runner;
+    private float _lastLogTime = 0f;
 
     private void Awake()
     {
         _runner = GetComponent<NetworkRunner>();
+
+        if (Application.isPlaying)
+        {
+            Debug.Log("PlayerInput initialized");
+        }
+    }
+
+    private void Start()
+    {
+        // Ensure the cursor is properly configured in the game scene
+        string currentScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+        if (!currentScene.Contains("Lobby") && !currentScene.Contains("MainMenu"))
+        {
+            Debug.Log("PlayerInput detected game scene - cursor should be locked by PlayerController");
+        }
     }
 
     private void Update()
     {
         // Get direct input from Unity's Input system
-        _moveInput.x = Input.GetAxis("Horizontal");
-        _moveInput.y = Input.GetAxis("Vertical");
+        _moveInput.x = Input.GetAxisRaw("Horizontal");
+        _moveInput.y = Input.GetAxisRaw("Vertical");
 
-        // Explicitly track raw mouse movement regardless of cursor state
-        float mouseX = Input.GetAxis("Mouse X");
-        float mouseY = Input.GetAxis("Mouse Y");
+        // Explicitly track raw mouse movement with enhanced sensitivity
+        float mouseX = Input.GetAxisRaw("Mouse X") * _mouseSensitivityMultiplier;
+        float mouseY = Input.GetAxisRaw("Mouse Y") * _mouseSensitivityMultiplier;
+
+        // Apply inversion if needed
+        if (_invertMouseY)
+            mouseY = -mouseY;
+
         _lookInput = new Vector2(mouseX, mouseY);
 
-        // Force debug output for mouse movement
-        if (Mathf.Abs(mouseX) > 0.01f || Mathf.Abs(mouseY) > 0.01f)
+        // Debug output for mouse movement - throttled to avoid spam
+        if (_debugInput && (Mathf.Abs(mouseX) > 0.01f || Mathf.Abs(mouseY) > 0.01f))
         {
-            Debug.Log($"RAW MOUSE: X={mouseX:F3}, Y={mouseY:F3}");
+            if (Time.time - _lastLogTime >= _debugLogInterval)
+            {
+                Debug.Log($"RAW MOUSE: X={mouseX:F3}, Y={mouseY:F3}, CursorVisible: {Cursor.visible}, LockState: {Cursor.lockState}");
+                _lastLogTime = Time.time;
+            }
         }
 
         _jumpInput = Input.GetKey(KeyCode.Space);
@@ -54,10 +87,14 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
         // Submit to network
         input.Set(data);
 
-        // Debug output
-        if (_moveInput.magnitude > 0.1f || _lookInput.magnitude > 0.1f)
+        // Debug output - throttled to avoid spam
+        if (_debugInput && (_moveInput.magnitude > 0.1f || _lookInput.magnitude > 0.1f))
         {
-            Debug.Log($"Submitting network input: H={data.HorizontalInput:F2}, V={data.VerticalInput:F2}, MouseX={_lookInput.x:F2}, MouseY={_lookInput.y:F2}");
+            if (Time.time - _lastLogTime >= _debugLogInterval)
+            {
+                Debug.Log($"Submitting network input: H={data.HorizontalInput:F2}, V={data.VerticalInput:F2}, MouseX={_lookInput.x:F2}, MouseY={_lookInput.y:F2}");
+                _lastLogTime = Time.time;
+            }
         }
     }
 

@@ -32,7 +32,7 @@ public class PlayerReadyUI : NetworkBehaviour
     private void Update()
     {
         // Check for space key to toggle ready status for local player
-        if (Object.HasInputAuthority && Input.GetKeyDown(KeyCode.Space))
+        if (Object != null && Object.HasInputAuthority && Input.GetKeyDown(KeyCode.Space))
         {
             RPC_ToggleReady();
         }

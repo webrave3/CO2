@@ -45,3 +45,4 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _mainMenuSceneName: MainMenu
+  _networkRunnerPrefab: {fileID: 463439149161756918, guid: ab236c45ad85cc349a90534d43fc5131, type: 3}

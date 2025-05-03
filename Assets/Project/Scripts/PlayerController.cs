@@ -7,35 +7,65 @@ using TMPro;
 
 public class PlayerController : NetworkBehaviour
 {
+    [Header("Components")]
     [SerializeField] private SimpleKCC _kcc;
     [SerializeField] private Camera _camera;
+    [SerializeField] private GameObject _lobbyVisuals;
+    [SerializeField] private GameObject _gameplayVisuals;
+
+    [Header("Movement Settings")]
     [SerializeField] private float _moveSpeed = 5f;
     [SerializeField] private float _lookSensitivity = 2f;
-    [SerializeField] private GameObject _lobbyModel;
-    [SerializeField] private GameObject _gameplayModel;
+    [SerializeField] private float _maxUpAngle = 85f;
+    [SerializeField] private float _maxDownAngle = 85f;
+
+    [Header("Debug Settings")]
+    [SerializeField] private bool _forceGameMode = true;
+    [SerializeField] private bool _debugRotation = true;
 
     [Networked]
     public NetworkBool IsInLobby { get; set; } = true;
 
     private bool _cursorLocked = false;
+    private float _verticalLookRotation = 0f;
+    private Vector2 _currentLookRotation = Vector2.zero;
     private PlayerReadyUI _playerReadyUI;
-    private float _verticalLookRotation = 0f;  // Track vertical look angle
 
     private void Awake()
     {
-        // Verify components
+        // Verify required components
         if (_kcc == null)
         {
-            Debug.LogError("SimpleKCC component not assigned to PlayerController");
+            Debug.LogError("SimpleKCC reference missing! Attempting to find component.");
             _kcc = GetComponent<SimpleKCC>();
+
+            if (_kcc == null)
+            {
+                Debug.LogError("Failed to find SimpleKCC component!");
+                enabled = false;
+                return;
+            }
         }
 
         if (_camera == null)
         {
-            Debug.LogError("Camera not assigned to PlayerController");
+            Debug.LogError("Camera reference missing! Attempting to find in children.");
             _camera = GetComponentInChildren<Camera>();
+
+            if (_camera == null)
+            {
+                Debug.LogError("Failed to find Camera component!");
+            }
         }
 
+        // Set up visuals
+        if (_lobbyVisuals == null)
+            Debug.LogWarning("Lobby visuals reference not set");
+
+        if (_gameplayVisuals == null)
+            Debug.LogWarning("Gameplay visuals reference not set");
+
+        // Get or add PlayerReadyUI
         _playerReadyUI = GetComponent<PlayerReadyUI>();
         if (_playerReadyUI == null && Application.isPlaying)
         {
@@ -47,42 +77,62 @@ public class PlayerController : NetworkBehaviour
     {
         Debug.Log($"Player spawned - HasInputAuthority: {HasInputAuthority}, HasStateAuthority: {HasStateAuthority}");
 
-        // Determine if we're in the lobby or game scene
-        string currentScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
-        IsInLobby = currentScene.Contains("Lobby");
+        // Force game mode if enabled (for testing)
+        if (_forceGameMode)
+        {
+            IsInLobby = false;
+            Debug.Log("FORCED GAME MODE: Setting IsInLobby to false");
+        }
+        else
+        {
+            // Determine state based on scene name
+            string currentScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+            IsInLobby = currentScene.Contains("Lobby");
+            Debug.Log($"Scene: {currentScene}, IsInLobby: {IsInLobby}");
+        }
 
-        // Update player models based on scene
-        UpdatePlayerVisuals();
+        // Update visuals based on state
+        UpdateVisuals();
 
-        // Create player name display
-        UpdatePlayerDisplayName();
+        // Create name display
+        SetupNameDisplay();
 
         if (HasInputAuthority)
         {
-            // Disable main camera and enable player camera
+            Debug.Log("This is the local player, setting up camera and input");
+
+            // Disable main camera if it exists and isn't our camera
             if (Camera.main != null && Camera.main != _camera)
             {
                 Camera.main.gameObject.SetActive(false);
             }
 
+            // Enable our camera
             if (_camera != null)
             {
                 _camera.gameObject.SetActive(true);
                 Debug.Log("Player camera activated");
             }
 
-            // In lobby, cursor should be visible for UI interaction
+            // Set cursor state based on game mode
             if (IsInLobby)
             {
                 UnlockCursor();
+                Debug.Log("Cursor unlocked due to lobby state");
             }
             else
             {
                 LockCursor();
+                Debug.Log("Cursor locked due to game state");
             }
+
+            // Immediately initialize current look rotation from SimpleKCC
+            _currentLookRotation = _kcc.GetLookRotation(true, false);
+            Debug.Log($"Initial look rotation: {_currentLookRotation}");
         }
         else
         {
+            // Disable camera for remote players
             if (_camera != null)
             {
                 _camera.gameObject.SetActive(false);
@@ -92,46 +142,86 @@ public class PlayerController : NetworkBehaviour
 
     public override void FixedUpdateNetwork()
     {
+        // Process network input
         if (GetInput(out NetworkInputData data))
         {
-            // Calculate movement direction
-            Vector3 moveDirection = new Vector3(data.HorizontalInput, 0, data.VerticalInput).normalized;
+            // Handle movement with SimpleKCC
+            ProcessMovement(data);
 
-            // Apply movement to SimpleKCC
-            Vector3 moveVelocity = transform.rotation * moveDirection * _moveSpeed;
-            _kcc.Move(moveVelocity);
-
-            // Debug any non-zero mouse input
-            if (data.MouseDelta.magnitude > 0.01f)
-            {
-                Debug.Log($"Mouse input: X={data.MouseDelta.x:F2}, Y={data.MouseDelta.y:F2}");
-            }
-
-            // Only apply look rotation if cursor is locked
-            if (_cursorLocked)
-            {
-                // Horizontal rotation (yaw) - rotate the whole character
-                _kcc.AddLookRotation(new Vector2(data.MouseDelta.x * _lookSensitivity, 0));
-
-                // Vertical rotation (pitch) - only rotate the camera
-                if (_camera != null)
-                {
-                    // Update our tracked vertical angle
-                    _verticalLookRotation -= data.MouseDelta.y * _lookSensitivity;
-
-                    // Clamp to avoid over-rotation
-                    _verticalLookRotation = Mathf.Clamp(_verticalLookRotation, -85f, 85f);
-
-                    // Apply rotation to camera
-                    _camera.transform.localRotation = Quaternion.Euler(_verticalLookRotation, 0, 0);
-                }
-            }
+            // Handle rotation with SimpleKCC
+            ProcessRotation(data);
         }
     }
 
-    private void UpdatePlayerDisplayName()
+    private void ProcessMovement(NetworkInputData data)
     {
-        // Create a simple text display if none exists
+        // Create movement direction vector from input
+        Vector3 moveDirection = new Vector3(data.HorizontalInput, 0, data.VerticalInput).normalized;
+
+        // Transform direction from local space to world space based on current look direction
+        // We only want to use the horizontal rotation (Y-axis) for movement direction
+        Quaternion yawRotation = Quaternion.Euler(0, transform.eulerAngles.y, 0);
+        Vector3 moveVelocity = yawRotation * moveDirection * _moveSpeed;
+
+        // Apply movement using SimpleKCC
+        _kcc.Move(moveVelocity);
+
+        // Debug movement if significant
+        if (moveDirection.magnitude > 0.1f)
+        {
+            Debug.Log($"Moving: direction={moveDirection}, velocity={moveVelocity}, speed={_moveSpeed}");
+        }
+    }
+
+    private void ProcessRotation(NetworkInputData data)
+    {
+        // Only process rotation if cursor is locked
+        if (!_cursorLocked)
+        {
+            if (data.MouseDelta.magnitude > 0.01f)
+            {
+                Debug.Log($"Mouse input detected ({data.MouseDelta}), but cursor is not locked. Rotation not applied.");
+
+                // If we're in game mode but cursor isn't locked, fix it
+                if (!IsInLobby && HasInputAuthority)
+                {
+                    LockCursor();
+                }
+            }
+            return;
+        }
+
+        // Get current look rotation from SimpleKCC
+        _currentLookRotation = _kcc.GetLookRotation(true, false);
+
+        // Calculate horizontal (yaw) rotation
+        float yawDelta = data.MouseDelta.x * _lookSensitivity;
+        float newYaw = _currentLookRotation.y + yawDelta;
+
+        // Calculate vertical (pitch) rotation
+        float pitchDelta = -data.MouseDelta.y * _lookSensitivity; // Invert Y for natural camera feel
+        _verticalLookRotation = Mathf.Clamp(_verticalLookRotation + pitchDelta, -_maxDownAngle, _maxUpAngle);
+
+        // Debug rotation values if enabled
+        if (_debugRotation && (Mathf.Abs(yawDelta) > 0.01f || Mathf.Abs(pitchDelta) > 0.01f))
+        {
+            Debug.Log($"Rotation: Yaw={yawDelta:F2} (new: {newYaw:F2}), Pitch={pitchDelta:F2} (new: {_verticalLookRotation:F2})");
+        }
+
+        // Apply horizontal rotation to the entire character using SimpleKCC
+        Vector2 newLookRotation = new Vector2(_verticalLookRotation, newYaw);
+        _kcc.SetLookRotation(newLookRotation);
+
+        // Apply vertical rotation to camera specifically
+        if (_camera != null)
+        {
+            _camera.transform.localRotation = Quaternion.Euler(_verticalLookRotation, 0, 0);
+        }
+    }
+
+    private void SetupNameDisplay()
+    {
+        // Create a simple text display if needed
         Transform nameDisplayTransform = transform.Find("NameDisplay");
         TextMeshPro nameText = null;
 
@@ -152,7 +242,7 @@ public class PlayerController : NetworkBehaviour
             nameText = nameDisplayTransform.GetComponent<TextMeshPro>();
         }
 
-        // Set the name
+        // Set name text
         if (nameText != null)
         {
             string playerName = "Player" + Runner.LocalPlayer.PlayerId;
@@ -171,11 +261,49 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
-    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
-    private void SetNetworkNameRpc(string name)
+    private void Update()
     {
-        // This is just a placeholder in case we want to sync names later
-        Debug.Log($"Player {Object.InputAuthority.PlayerId} set name to: {name}");
+        if (HasInputAuthority)
+        {
+            // Monitor cursor state consistency
+            if (!IsInLobby && Cursor.lockState != CursorLockMode.Locked && _cursorLocked == false)
+            {
+                Debug.LogWarning("Detected cursor inconsistency - cursor should be locked in game mode.");
+                LockCursor();
+            }
+
+            // Toggle cursor lock with Escape key in game mode
+            if (!IsInLobby && Input.GetKeyDown(KeyCode.Escape))
+            {
+                if (_cursorLocked)
+                    UnlockCursor();
+                else
+                    LockCursor();
+            }
+
+            // Key for debugging state - useful for troubleshooting
+            if (Input.GetKeyDown(KeyCode.L))
+            {
+                Debug.Log($"STATE: IsInLobby={IsInLobby}, CursorLocked={_cursorLocked}, " +
+                          $"CursorState={Cursor.lockState}, LookRotation={_currentLookRotation}");
+
+                // Force game mode with L+G combo
+                if (Input.GetKey(KeyCode.G))
+                {
+                    IsInLobby = false;
+                    UpdateVisuals();
+                    LockCursor();
+                    Debug.LogWarning("FORCE APPLIED: Game mode activated, cursor locked.");
+                }
+            }
+
+            // Update 3D text to face camera
+            Transform nameDisplay = transform.Find("NameDisplay");
+            if (nameDisplay != null && Camera.main != null)
+            {
+                nameDisplay.rotation = Camera.main.transform.rotation;
+            }
+        }
     }
 
     private void LockCursor()
@@ -194,47 +322,63 @@ public class PlayerController : NetworkBehaviour
         Debug.Log("Cursor unlocked");
     }
 
-    private void Update()
+    private void UpdateVisuals()
     {
-        if (HasInputAuthority)
-        {
-            // In the lobby, we want the cursor to be visible for UI interaction
-            // But in the game, we toggle with Escape
-            if (!IsInLobby && Input.GetKeyDown(KeyCode.Escape))
-            {
-                if (_cursorLocked)
-                    UnlockCursor();
-                else
-                    LockCursor();
-            }
+        if (_lobbyVisuals != null)
+            _lobbyVisuals.SetActive(IsInLobby);
 
-            // Make name display face the camera
-            Transform nameDisplay = transform.Find("NameDisplay");
-            if (nameDisplay != null && Camera.main != null)
-            {
-                nameDisplay.rotation = Camera.main.transform.rotation;
-            }
-        }
+        if (_gameplayVisuals != null)
+            _gameplayVisuals.SetActive(!IsInLobby);
     }
 
-    public void UpdatePlayerVisuals()
-    {
-        if (_lobbyModel != null)
-            _lobbyModel.SetActive(IsInLobby);
-
-        if (_gameplayModel != null)
-            _gameplayModel.SetActive(!IsInLobby);
-    }
-
-    // Called when the game state changes from Lobby to Playing
+    // Called when game state changes to Playing
     public void OnGameStart()
     {
+        Debug.Log("OnGameStart called - transitioning from lobby to game");
         IsInLobby = false;
-        UpdatePlayerVisuals();
+        UpdateVisuals();
 
         if (HasInputAuthority)
         {
             LockCursor();
+        }
+    }
+
+    // Utility method to reset camera rotation
+    public void ResetCameraRotation()
+    {
+        if (HasInputAuthority)
+        {
+            _verticalLookRotation = 0f;
+
+            if (_camera != null)
+            {
+                _camera.transform.localRotation = Quaternion.identity;
+            }
+
+            // Reset SimpleKCC look rotation (keep yaw, reset pitch)
+            Vector2 currentRotation = _kcc.GetLookRotation(true, false);
+            _kcc.SetLookRotation(new Vector2(0, currentRotation.y));
+
+            Debug.Log("Camera rotation reset");
+        }
+    }
+
+    // Utility method to force cursor state
+    public void ForceFixCursorState()
+    {
+        if (HasInputAuthority)
+        {
+            if (IsInLobby)
+            {
+                UnlockCursor();
+            }
+            else
+            {
+                LockCursor();
+            }
+
+            Debug.Log($"Force fixed cursor state: IsInLobby={IsInLobby}, CursorLocked={_cursorLocked}");
         }
     }
 }

@@ -91,3 +91,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d8a462de3fa8c4243935cc22519977b6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _mouseSensitivityMultiplier: 1
+  _invertMouseY: 0
+  _debugInput: 1
+  _debugLogInterval: 0.5
