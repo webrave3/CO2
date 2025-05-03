@@ -5,7 +5,6 @@ using Fusion;
 public enum GameState
 {
     MainMenu,
-    Lobby,
     Playing,
     GameOver
 }
@@ -13,7 +12,7 @@ public enum GameState
 public class GameStateManager : NetworkBehaviour
 {
     [Networked]
-    public GameState State { get; set; } = GameState.Lobby;
+    public GameState State { get; set; } = GameState.Playing;
 
     // Singleton pattern 
     public static GameStateManager Instance { get; private set; }
@@ -40,17 +39,9 @@ public class GameStateManager : NetworkBehaviour
 
         if (Object.HasStateAuthority)
         {
-            string currentScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
-            if (currentScene.Contains("Lobby"))
-            {
-                State = GameState.Lobby;
-                Debug.Log("Setting initial state to Lobby based on scene name");
-            }
-            else if (currentScene.Contains("Game"))
-            {
-                State = GameState.Playing;
-                Debug.Log("Setting initial state to Playing based on scene name");
-            }
+            // Start directly in playing state
+            State = GameState.Playing;
+            Debug.Log("Game started in Playing state");
         }
 
         // Initialize the dictionary if needed
@@ -72,28 +63,12 @@ public class GameStateManager : NetworkBehaviour
         // Handle state transition logic here
         switch (State)
         {
-            case GameState.Lobby:
-                // Setup lobby state
-                break;
             case GameState.Playing:
-                // Begin gameplay
-                NotifyPlayersOfGameStart();
+                Debug.Log("Game is now in Playing state");
                 break;
             case GameState.GameOver:
-                // End game
+                Debug.Log("Game Over");
                 break;
-        }
-    }
-
-    private void NotifyPlayersOfGameStart()
-    {
-        Debug.Log("Notifying all players of game start");
-
-        PlayerController[] players = FindObjectsOfType<PlayerController>();
-        foreach (var player in players)
-        {
-            Debug.Log($"Notifying player {player.gameObject.name} of game start");
-            player.OnGameStart();
         }
     }
 
@@ -136,7 +111,7 @@ public class GameStateManager : NetworkBehaviour
         // If we have at least 1 player and all are ready, we could auto-start
         if (allReady && PlayersReady.Count > 0)
         {
-            Debug.Log("All players ready, game could start now");
+            Debug.Log("All players ready");
         }
     }
 

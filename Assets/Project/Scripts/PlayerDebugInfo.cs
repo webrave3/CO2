@@ -39,11 +39,19 @@ public class PlayerDebugInfo : MonoBehaviour
             string info = $"Player {(_networkObject?.InputAuthority.PlayerId.ToString() ?? "Unknown")}\n";
             info += $"Position: {transform.position.ToString("F1")}\n";
             info += $"HasInputAuth: {(_networkObject?.HasInputAuthority.ToString() ?? "Unknown")}\n";
-            info += $"IsInLobby: {(_playerController?.IsInLobby.ToString() ?? "Unknown")}\n";
 
-            // Instead of accessing Velocity directly, calculate recent movement
-            Vector3 currentPos = transform.position;
-            info += $"Movement: {(_playerController != null ? "Check Input" : "No Controller")}\n";
+            // Get current game state if available
+            if (GameStateManager.Instance != null)
+            {
+                info += $"GameState: {GameStateManager.Instance.State}\n";
+            }
+
+            // Get look rotation if KCC is available
+            if (_kcc != null)
+            {
+                Vector2 lookRotation = _kcc.GetLookRotation(true, true);
+                info += $"Look: P={lookRotation.x:F1}, Y={lookRotation.y:F1}\n";
+            }
 
             _debugText.text = info;
 

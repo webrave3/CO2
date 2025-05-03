@@ -1,36 +1,5 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
---- !u!1 &2497529323941830275
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 6577401980264218347}
-  m_Layer: 0
-  m_Name: GameplayVisuals
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &6577401980264218347
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2497529323941830275}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 5175375197879319720}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &5834254144934939036
 GameObject:
   m_ObjectHideFlags: 0
@@ -59,7 +28,7 @@ Transform:
   m_GameObject: {fileID: 5834254144934939036}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1.14, z: -0.01}
+  m_LocalPosition: {x: 0, y: 1.26, z: 0.135}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -206,8 +175,6 @@ Transform:
   m_Children:
   - {fileID: 8408585252318328580}
   - {fileID: 8303114976637549340}
-  - {fileID: 4166753867899011066}
-  - {fileID: 6577401980264218347}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &544259497989718740
@@ -309,16 +276,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _kcc: {fileID: 5745615109177488449}
   _camera: {fileID: 8025588294064833553}
-  _lobbyVisuals: {fileID: 8810612201843202665}
-  _gameplayVisuals: {fileID: 2497529323941830275}
   _moveSpeed: 5
   _lookSensitivity: 2
-  _maxUpAngle: 85
-  _maxDownAngle: 85
-  _forceGameMode: 1
-  _debugRotation: 1
-  _IsInLobby:
-    _value: 0
+  _jumpForce: 5
+  _cameraMaxY: 80
+  _cameraMinY: -80
+  _showDebugInfo: 1
 --- !u!114 &2301474815692329637
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -495,34 +458,3 @@ CapsuleCollider:
   m_Height: 2
   m_Direction: 1
   m_Center: {x: 0, y: 0, z: 0}
---- !u!1 &8810612201843202665
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 4166753867899011066}
-  m_Layer: 0
-  m_Name: LobbyVisuals
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &4166753867899011066
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8810612201843202665}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 5175375197879319720}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}

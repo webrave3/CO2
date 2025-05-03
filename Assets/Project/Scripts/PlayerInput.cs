@@ -43,7 +43,7 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
 
     private void Update()
     {
-        // Get direct input from Unity's Input system
+        // Get direct input from Unity's Input system - these will be passed to network
         _moveInput.x = Input.GetAxisRaw("Horizontal");
         _moveInput.y = Input.GetAxisRaw("Vertical");
 
