@@ -24,13 +24,6 @@ public class PlayerController : NetworkBehaviour
     private bool _cursorLocked = false;
     private bool _jumpConsumed = false;
 
-    // Store pitch and yaw separately as Networked values
-    [Networked]
-    private float _networkPitch { get; set; }
-
-    [Networked]
-    private float _networkYaw { get; set; }
-
     private void Awake()
     {
         // Ensure required components
@@ -105,32 +98,15 @@ public class PlayerController : NetworkBehaviour
                 // Apply mouse delta using SimpleKCC's AddLookRotation
                 Vector2 lookDelta = data.MouseDelta * _lookSensitivity;
 
-                // Apply rotation to SimpleKCC directly
+                // Apply rotation to SimpleKCC
                 _kcc.AddLookRotation(-lookDelta.y, lookDelta.x);
-
-                // Store the current rotation in networked variables
-                Vector2 currentRotation = _kcc.GetLookRotation(true, true);
-                _networkPitch = currentRotation.x;
-                _networkYaw = currentRotation.y;
 
                 // Debug rotation if enabled
                 if (_showDebugInfo)
                 {
-                    Debug.Log($"Local Input: MouseDelta={data.MouseDelta}, Applied: Pitch={-lookDelta.y:F2}, Yaw={lookDelta.x:F2}");
-                    Debug.Log($"Network State: Pitch={_networkPitch:F2}, Yaw={_networkYaw:F2}");
-                    Debug.Log($"KCC State: {currentRotation}");
+                    Vector2 currentRotation = _kcc.GetLookRotation(true, true);
+                    Debug.Log($"Mouse Delta: {data.MouseDelta}, Applied: Pitch={-lookDelta.y:F2}, Yaw={lookDelta.x:F2}, Current Rotation: {currentRotation}");
                 }
-            }
-        }
-
-        // Apply networked rotation to remote players and corrected client state
-        if (!HasInputAuthority || Object.StateAuthority != Object.InputAuthority)
-        {
-            _kcc.SetLookRotation(_networkPitch, _networkYaw);
-
-            if (_showDebugInfo && HasStateAuthority)
-            {
-                Debug.Log($"Server Correcting: Pitch={_networkPitch:F2}, Yaw={_networkYaw:F2}");
             }
         }
     }
