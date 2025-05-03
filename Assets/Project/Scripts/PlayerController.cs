@@ -27,8 +27,7 @@ public class PlayerController : NetworkBehaviour
     public NetworkBool IsInLobby { get; set; } = true;
 
     private bool _cursorLocked = false;
-    private float _verticalLookRotation = 0f;
-    private Vector2 _currentLookRotation = Vector2.zero;
+    private Vector2 _currentLookRotation = Vector2.zero; // x=pitch, y=yaw
     private PlayerReadyUI _playerReadyUI;
 
     private void Awake()
@@ -126,8 +125,9 @@ public class PlayerController : NetworkBehaviour
                 Debug.Log("Cursor locked due to game state");
             }
 
-            // Immediately initialize current look rotation from SimpleKCC
-            _currentLookRotation = _kcc.GetLookRotation(true, false);
+            // Initialize rotation
+            _currentLookRotation = Vector2.zero;
+            _kcc.SetLookRotation(_currentLookRotation);
             Debug.Log($"Initial look rotation: {_currentLookRotation}");
         }
         else
@@ -158,18 +158,20 @@ public class PlayerController : NetworkBehaviour
         // Create movement direction vector from input
         Vector3 moveDirection = new Vector3(data.HorizontalInput, 0, data.VerticalInput).normalized;
 
-        // Transform direction from local space to world space based on current look direction
-        // We only want to use the horizontal rotation (Y-axis) for movement direction
-        Quaternion yawRotation = Quaternion.Euler(0, transform.eulerAngles.y, 0);
-        Vector3 moveVelocity = yawRotation * moveDirection * _moveSpeed;
+        // Transform movement direction based on character's current yaw rotation
+        // Only use yaw (horizontal rotation) for movement
+        Vector2 currentRotation = _kcc.GetLookRotation(false, true);
+        float yaw = currentRotation.y;
+        Quaternion yawRotation = Quaternion.Euler(0, yaw, 0);
+        Vector3 worldMoveDirection = yawRotation * moveDirection;
 
-        // Apply movement using SimpleKCC
-        _kcc.Move(moveVelocity);
+        // Apply movement velocity
+        _kcc.Move(worldMoveDirection * _moveSpeed);
 
         // Debug movement if significant
         if (moveDirection.magnitude > 0.1f)
         {
-            Debug.Log($"Moving: direction={moveDirection}, velocity={moveVelocity}, speed={_moveSpeed}");
+            Debug.Log($"Moving: local={moveDirection}, yaw={yaw:F1}, world={worldMoveDirection}, velocity={worldMoveDirection * _moveSpeed}");
         }
     }
 
@@ -191,31 +193,20 @@ public class PlayerController : NetworkBehaviour
             return;
         }
 
-        // Get current look rotation from SimpleKCC
-        _currentLookRotation = _kcc.GetLookRotation(true, false);
+        // Update rotation values (Vector2: x=pitch, y=yaw)
+        _currentLookRotation.x += data.MouseDelta.y * _lookSensitivity; // Pitch
+        _currentLookRotation.y += data.MouseDelta.x * _lookSensitivity; // Yaw
 
-        // Calculate horizontal (yaw) rotation
-        float yawDelta = data.MouseDelta.x * _lookSensitivity;
-        float newYaw = _currentLookRotation.y + yawDelta;
+        // Clamp pitch to prevent looking too far up or down
+        _currentLookRotation.x = Mathf.Clamp(_currentLookRotation.x, -_maxDownAngle, _maxUpAngle);
 
-        // Calculate vertical (pitch) rotation
-        float pitchDelta = -data.MouseDelta.y * _lookSensitivity; // Invert Y for natural camera feel
-        _verticalLookRotation = Mathf.Clamp(_verticalLookRotation + pitchDelta, -_maxDownAngle, _maxUpAngle);
+        // Apply to SimpleKCC (pitch, yaw)
+        _kcc.SetLookRotation(_currentLookRotation);
 
         // Debug rotation values if enabled
-        if (_debugRotation && (Mathf.Abs(yawDelta) > 0.01f || Mathf.Abs(pitchDelta) > 0.01f))
+        if (_debugRotation && data.MouseDelta.magnitude > 0.01f)
         {
-            Debug.Log($"Rotation: Yaw={yawDelta:F2} (new: {newYaw:F2}), Pitch={pitchDelta:F2} (new: {_verticalLookRotation:F2})");
-        }
-
-        // Apply horizontal rotation to the entire character using SimpleKCC
-        Vector2 newLookRotation = new Vector2(_verticalLookRotation, newYaw);
-        _kcc.SetLookRotation(newLookRotation);
-
-        // Apply vertical rotation to camera specifically
-        if (_camera != null)
-        {
-            _camera.transform.localRotation = Quaternion.Euler(_verticalLookRotation, 0, 0);
+            Debug.Log($"Mouse Delta: {data.MouseDelta}, Pitch: {_currentLookRotation.x}, Yaw: {_currentLookRotation.y}");
         }
     }
 
@@ -349,16 +340,9 @@ public class PlayerController : NetworkBehaviour
     {
         if (HasInputAuthority)
         {
-            _verticalLookRotation = 0f;
-
-            if (_camera != null)
-            {
-                _camera.transform.localRotation = Quaternion.identity;
-            }
-
-            // Reset SimpleKCC look rotation (keep yaw, reset pitch)
-            Vector2 currentRotation = _kcc.GetLookRotation(true, false);
-            _kcc.SetLookRotation(new Vector2(0, currentRotation.y));
+            // Reset rotation values
+            _currentLookRotation = Vector2.zero;
+            _kcc.SetLookRotation(_currentLookRotation);
 
             Debug.Log("Camera rotation reset");
         }

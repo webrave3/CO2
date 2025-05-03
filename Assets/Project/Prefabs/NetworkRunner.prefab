@@ -94,4 +94,4 @@ MonoBehaviour:
   _mouseSensitivityMultiplier: 1
   _invertMouseY: 0
   _debugInput: 1
-  _debugLogInterval: 0.5
+  _debugLogInterval: 2
