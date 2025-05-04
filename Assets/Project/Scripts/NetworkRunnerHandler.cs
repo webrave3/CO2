@@ -13,9 +13,19 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     [SerializeField] private string _lobbySceneName = "Lobby";
     [SerializeField] private string _gameSceneName = "Game";
 
+    // Session information
+    public string SessionDisplayName { get; private set; }
+    public string SessionUniqueID { get; private set; }
+    public string SessionHash { get; private set; }
+    public long SessionStartTime { get; private set; }
+
     private Dictionary<PlayerRef, NetworkObject> _spawnedCharacters = new Dictionary<PlayerRef, NetworkObject>();
     private NetworkRunner _runner;
     private NetworkSceneManagerDefault _sceneManager;
+
+    // Store available sessions locally since we can't access them directly
+    private List<SessionInfo> _availableSessions = new List<SessionInfo>();
+    private bool _isJoining = false;
 
     public bool IsSessionActive => _runner != null && _runner.IsRunning;
     public NetworkRunner Runner => _runner;
@@ -26,7 +36,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         _runner = GetComponent<NetworkRunner>();
         if (_runner == null)
         {
-            Debug.LogError("NetworkRunner component not found. Please add it in the Inspector.");
+            UnityEngine.Debug.LogError("NetworkRunner component not found. Please add it in the Inspector.");
             _runner = gameObject.AddComponent<NetworkRunner>();
         }
 
@@ -37,19 +47,71 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
+    private void Update()
+    {
+        // Press F1 for session debug info
+        if (Input.GetKeyDown(KeyCode.F1))
+        {
+            DebugSessionsList();
+        }
+    }
+
+    private void DebugSessionsList()
+    {
+        if (_runner == null)
+        {
+            UnityEngine.Debug.LogError("SESSIONS DEBUG: NetworkRunner is null");
+            return;
+        }
+
+        UnityEngine.Debug.Log("==== SESSIONS DEBUG ====");
+        UnityEngine.Debug.Log($"Runner State: {_runner.IsRunning}, GameMode: {_runner.GameMode}");
+
+        if (_runner.SessionInfo != null)
+        {
+            UnityEngine.Debug.Log($"Current Session: {_runner.SessionInfo.Name}, Players: {_runner.SessionInfo.PlayerCount}/{_runner.SessionInfo.MaxPlayers}");
+        }
+        else
+        {
+            UnityEngine.Debug.Log("Not connected to any session");
+        }
+
+        // List all available sessions from our cached list
+        if (_availableSessions != null && _availableSessions.Count > 0)
+        {
+            UnityEngine.Debug.Log($"Available Sessions ({_availableSessions.Count}):");
+            foreach (var session in _availableSessions)
+            {
+                UnityEngine.Debug.Log($"- {session.Name} | Players: {session.PlayerCount}/{session.MaxPlayers} | Region: {session.Region}");
+            }
+        }
+        else
+        {
+            UnityEngine.Debug.Log("No sessions available in session list");
+        }
+
+        UnityEngine.Debug.Log("========================");
+    }
+
     public async Task StartHostGame(string sessionName)
     {
         try
         {
             _runner.ProvideInput = true;
 
-            Debug.Log($"Starting game as Host with session name: {sessionName}");
+            // Generate unique session identification
+            SessionDisplayName = sessionName;
+            SessionUniqueID = $"{sessionName}_{System.Guid.NewGuid().ToString().Substring(0, 8)}";
+            SessionHash = ComputeSessionHash(SessionUniqueID);
+            SessionStartTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+            UnityEngine.Debug.Log($"Starting game as Host with name: {SessionDisplayName} | ID: {SessionUniqueID} | Hash: {SessionHash}");
 
             // Start the game in host mode
             var startGameArgs = new StartGameArgs()
             {
                 GameMode = GameMode.Host,
-                SessionName = sessionName,
+                SessionName = SessionUniqueID, // Use unique ID for actual session name
                 SceneManager = _sceneManager
             };
 
@@ -57,17 +119,24 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
 
             if (result.Ok)
             {
-                Debug.Log($"Host game started successfully");
+                UnityEngine.Debug.Log($"Host game started successfully");
+
+                // Save session info for reconnection
+                PlayerPrefs.SetString("LastSessionID", SessionUniqueID);
+                PlayerPrefs.SetString("LastSessionHash", SessionHash);
+                PlayerPrefs.SetString("LastSessionName", SessionDisplayName);
+                PlayerPrefs.Save();
+
                 await LoadScene(_lobbySceneName);
             }
             else
             {
-                Debug.LogError($"Failed to start host game: {result.ShutdownReason}");
+                UnityEngine.Debug.LogError($"Failed to start host game: {result.ShutdownReason}");
             }
         }
         catch (Exception ex)
         {
-            Debug.LogError($"Error starting host game: {ex.Message}\n{ex.StackTrace}");
+            UnityEngine.Debug.LogError($"Error starting host game: {ex.Message}\n{ex.StackTrace}");
         }
     }
 
@@ -76,8 +145,31 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         try
         {
             _runner.ProvideInput = true;
+            _isJoining = true;
 
-            Debug.Log($"Joining game as Client with session name: {sessionName}");
+            UnityEngine.Debug.Log($"Joining game with session name: {sessionName}");
+
+            // Store the session name for display purposes
+            SessionDisplayName = sessionName;
+
+            // First, try to get an updated session list
+            UnityEngine.Debug.Log("Trying to get session list through callback...");
+
+            // If we have any matching sessions in our cached list, log them
+            bool sessionFound = false;
+            foreach (var session in _availableSessions)
+            {
+                if (session.Name.Contains(sessionName))
+                {
+                    sessionFound = true;
+                    UnityEngine.Debug.Log($"Found matching session: {session.Name} with {session.PlayerCount} players");
+                }
+            }
+
+            if (!sessionFound)
+            {
+                UnityEngine.Debug.LogWarning($"Warning: No session containing '{sessionName}' found in cached session list, but attempting to join anyway");
+            }
 
             // Start the game in client mode
             var startGameArgs = new StartGameArgs()
@@ -87,21 +179,53 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
                 SceneManager = _sceneManager
             };
 
+            UnityEngine.Debug.Log("Starting client game...");
             var result = await _runner.StartGame(startGameArgs);
 
             if (result.Ok)
             {
-                Debug.Log($"Client game started successfully");
-                // Client will receive scene load instructions from host
+                UnityEngine.Debug.Log($"Client game started successfully");
+
+                // The session ID is the actual session name used internally
+                if (_runner.SessionInfo != null)
+                {
+                    SessionUniqueID = _runner.SessionInfo.Name;
+
+                    // For the client, we'll generate a hash based on the session name
+                    SessionHash = ComputeSessionHash(SessionUniqueID);
+
+                    UnityEngine.Debug.Log($"Connected to session: {SessionDisplayName} | ID: {SessionUniqueID} | Hash: {SessionHash}");
+                }
+                else
+                {
+                    UnityEngine.Debug.LogError("Connected but SessionInfo is null!");
+                }
             }
             else
             {
-                Debug.LogError($"Failed to join game: {result.ShutdownReason}");
+                UnityEngine.Debug.LogError($"Failed to join game: {result.ShutdownReason}");
             }
+
+            _isJoining = false;
         }
         catch (Exception ex)
         {
-            Debug.LogError($"Error joining game: {ex.Message}\n{ex.StackTrace}");
+            _isJoining = false;
+            UnityEngine.Debug.LogError($"Error joining game: {ex.Message}\n{ex.StackTrace}");
+        }
+    }
+
+    // Compute a hash for the session ID
+    private string ComputeSessionHash(string input)
+    {
+        // Simple hash function for demo purposes
+        using (System.Security.Cryptography.MD5 md5 = System.Security.Cryptography.MD5.Create())
+        {
+            byte[] inputBytes = System.Text.Encoding.ASCII.GetBytes(input);
+            byte[] hashBytes = md5.ComputeHash(inputBytes);
+
+            // Convert to hex string and take first 8 characters
+            return BitConverter.ToString(hashBytes).Replace("-", "").Substring(0, 8);
         }
     }
 
@@ -109,7 +233,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (_runner != null && _runner.IsRunning)
         {
-            Debug.Log($"Loading scene: {sceneName}");
+            UnityEngine.Debug.Log($"Loading scene: {sceneName}");
 
             // Use the runner's LoadScene method directly
             await _runner.LoadScene(sceneName);
@@ -120,23 +244,21 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (_runner != null && _runner.IsRunning)
         {
-            Debug.Log("Shutting down network session");
+            UnityEngine.Debug.Log("Shutting down network session");
             await _runner.Shutdown();
         }
     }
 
-    // Replace only the OnPlayerJoined method in NetworkRunnerHandler.cs
-
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
     {
-        Debug.Log($"Player {player} joined");
+        UnityEngine.Debug.Log($"Player {player} joined");
 
         if (SceneManager.GetActiveScene().name == _lobbySceneName ||
             SceneManager.GetActiveScene().name == _gameSceneName)
         {
             if (runner.IsServer)
             {
-                Debug.Log($"Spawning player: {player}");
+                UnityEngine.Debug.Log($"Spawning player: {player}");
 
                 // Get spawn point
                 Transform spawnPoint = GetSpawnPoint();
@@ -166,7 +288,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogError($"Exception when spawning player: {ex.Message}");
+                    UnityEngine.Debug.LogError($"Exception when spawning player: {ex.Message}");
                 }
 
                 // Spawn GameStateManager if first player
@@ -198,7 +320,24 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         {
             runner.Despawn(networkObject);
             _spawnedCharacters.Remove(player);
-            Debug.Log($"Player {player} despawned and removed from dictionary");
+            UnityEngine.Debug.Log($"Player {player} despawned and removed from dictionary");
+        }
+    }
+
+    // This callback receives session list updates
+    public void OnSessionListUpdated(NetworkRunner runner, List<SessionInfo> sessionList)
+    {
+        UnityEngine.Debug.Log($"Session list updated: {sessionList.Count} sessions available");
+        _availableSessions = sessionList;
+
+        // If we're in joining mode, log all available sessions to help with debugging
+        if (_isJoining)
+        {
+            UnityEngine.Debug.Log("Available sessions while joining:");
+            foreach (var session in sessionList)
+            {
+                UnityEngine.Debug.Log($"- {session.Name} | Players: {session.PlayerCount}/{session.MaxPlayers}");
+            }
         }
     }
 
@@ -207,7 +346,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) { }
     public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason)
     {
-        Debug.Log($"Network shutdown: {shutdownReason}");
+        UnityEngine.Debug.Log($"Network shutdown: {shutdownReason}");
 
         // Clear player dictionary
         _spawnedCharacters.Clear();
@@ -218,22 +357,21 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             SceneManager.LoadScene("MainMenu");
         }
     }
-    public void OnConnectedToServer(NetworkRunner runner) { Debug.Log("Connected to server"); }
+    public void OnConnectedToServer(NetworkRunner runner) { UnityEngine.Debug.Log("Connected to server"); }
     public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason)
     {
-        Debug.Log($"Disconnected from server: {reason}");
+        UnityEngine.Debug.Log($"Disconnected from server: {reason}");
     }
     public void OnConnectRequest(NetworkRunner runner, NetworkRunnerCallbackArgs.ConnectRequest request, byte[] token) { }
     public void OnConnectFailed(NetworkRunner runner, NetAddress remoteAddress, NetConnectFailedReason reason)
     {
-        Debug.LogError($"Connection failed: {reason}");
+        UnityEngine.Debug.LogError($"Connection failed: {reason}");
     }
     public void OnUserSimulationMessage(NetworkRunner runner, SimulationMessagePtr message) { }
-    public void OnSessionListUpdated(NetworkRunner runner, List<SessionInfo> sessionList) { }
     public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) { }
     public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken) { }
     public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, ArraySegment<byte> data) { }
-    public void OnSceneLoadDone(NetworkRunner runner) { Debug.Log("Scene load completed"); }
+    public void OnSceneLoadDone(NetworkRunner runner) { UnityEngine.Debug.Log("Scene load completed"); }
     public void OnSceneLoadStart(NetworkRunner runner) { }
     public void OnObjectEnterAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
     public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }

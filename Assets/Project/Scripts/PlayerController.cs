@@ -29,14 +29,16 @@ public class PlayerController : NetworkBehaviour
             _camera = GetComponentInChildren<Camera>();
     }
 
+    // Add this inside the Spawned method of PlayerController.cs, after camera activation
+
     public override void Spawned()
     {
-        Debug.Log($"Player Spawned - HasInputAuthority: {HasInputAuthority}, ID: {Object.InputAuthority}");
+        UnityEngine.Debug.Log($"Player Spawned - HasInputAuthority: {HasInputAuthority}, ID: {Object.InputAuthority}");
 
         // Configure based on authority
         if (HasInputAuthority)
         {
-            Debug.Log("This is the local player");
+            UnityEngine.Debug.Log("This is the local player");
 
             // Disable main camera if it exists
             if (Camera.main != null && Camera.main != _camera)
@@ -47,6 +49,13 @@ public class PlayerController : NetworkBehaviour
             {
                 _camera.gameObject.SetActive(true);
                 _camera.tag = "MainCamera";
+
+                // Add session info display to camera if not already present
+                if (!_camera.GetComponent<SessionInfoDisplay>())
+                {
+                    SessionInfoDisplay infoDisplay = _camera.gameObject.AddComponent<SessionInfoDisplay>();
+                    UnityEngine.Debug.Log("Added SessionInfoDisplay to player camera");
+                }
             }
 
             // Lock cursor
@@ -55,7 +64,7 @@ public class PlayerController : NetworkBehaviour
         }
         else
         {
-            Debug.Log($"This is a remote player (ID: {Object.InputAuthority})");
+            UnityEngine.Debug.Log($"This is a remote player (ID: {Object.InputAuthority})");
             // Disable camera for remote players
             if (_camera != null)
                 _camera.gameObject.SetActive(false);
@@ -127,6 +136,27 @@ public class PlayerController : NetworkBehaviour
             {
                 Cursor.lockState = CursorLockMode.Locked;
                 Cursor.visible = false;
+            }
+            if (HasInputAuthority && Input.GetKeyDown(KeyCode.F3))
+            {
+                UnityEngine.Debug.Log($"==== PLAYER DEBUG ====");
+                UnityEngine.Debug.Log($"Player ID: {Object.InputAuthority.PlayerId}");
+                UnityEngine.Debug.Log($"HasInputAuthority: {HasInputAuthority}");
+                UnityEngine.Debug.Log($"HasStateAuthority: {Object.HasStateAuthority}");
+
+                // Get session info from GameStateManager
+                GameStateManager gsm = FindObjectOfType<GameStateManager>();
+                if (gsm != null)
+                {
+                    UnityEngine.Debug.Log($"Game State: {gsm.State}");
+                    UnityEngine.Debug.Log($"Session: {gsm.SessionDisplayName} | {gsm.SessionHash}");
+                    UnityEngine.Debug.Log($"Players Ready: {gsm.PlayersReady.Count}");
+                }
+
+                // Log position and rotation
+                UnityEngine.Debug.Log($"Position: {transform.position}");
+                UnityEngine.Debug.Log($"Rotation: {transform.rotation.eulerAngles}");
+                UnityEngine.Debug.Log("======================");
             }
         }
     }

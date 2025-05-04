@@ -79,7 +79,7 @@ public class MainMenuUI : MonoBehaviour
             sessionName = _sessionNameInput.text;
         }
 
-        // Start host
+        // Start host using the updated method
         await _networkRunnerHandler.StartHostGame(sessionName);
     }
 
@@ -100,7 +100,7 @@ public class MainMenuUI : MonoBehaviour
             sessionName = _sessionNameInput.text;
         }
 
-        // Join game
+        // Join game using the updated method
         await _networkRunnerHandler.StartClientGame(sessionName);
     }
 
