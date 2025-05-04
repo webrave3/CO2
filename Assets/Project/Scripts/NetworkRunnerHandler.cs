@@ -131,37 +131,37 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     {
         Debug.Log($"Player {player} joined");
 
-        // If we're in the lobby scene and the player doesn't have a character yet, spawn one
         if (SceneManager.GetActiveScene().name == _lobbySceneName ||
             SceneManager.GetActiveScene().name == _gameSceneName)
         {
-            // Spawn the player
             if (runner.IsServer)
             {
                 Debug.Log($"Spawning player: {player}");
 
-                // Find a spawn point
+                // Get spawn point
                 Transform spawnPoint = GetSpawnPoint();
-                Vector3 spawnPosition = (spawnPoint != null) ? spawnPoint.position : new Vector3((player.RawEncoded % 4) * 2, 1, 0);
-                Quaternion spawnRotation = (spawnPoint != null) ? spawnPoint.rotation : Quaternion.identity;
+                Vector3 spawnPosition;
+                Quaternion spawnRotation = Quaternion.identity;
+
+                if (spawnPoint != null)
+                {
+                    // Use exact spawn point position
+                    spawnPosition = spawnPoint.position;
+                    spawnRotation = spawnPoint.rotation;
+                }
+                else
+                {
+                    // Default spawn position - capsule bottom at Y=0
+                    spawnPosition = new Vector3((player.RawEncoded % 4) * 2, 1.0f, 0);
+                }
 
                 try
                 {
-                    // KEY FIX: Pass player as input authority for their own character
                     NetworkObject networkPlayerObject = runner.Spawn(_playerPrefab, spawnPosition, spawnRotation, player);
 
                     if (networkPlayerObject != null)
                     {
-                        Debug.Log($"Player {player} spawned successfully with InputAuthority");
                         _spawnedCharacters.Add(player, networkPlayerObject);
-
-                        // Additional verification
-                        Debug.Log($"Player {player} - HasInputAuthority: {networkPlayerObject.HasInputAuthority}");
-                        Debug.Log($"Player {player} - InputAuthority: {networkPlayerObject.InputAuthority}");
-                    }
-                    else
-                    {
-                        Debug.LogError($"Failed to spawn player {player}");
                     }
                 }
                 catch (Exception ex)
@@ -169,10 +169,9 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
                     Debug.LogError($"Exception when spawning player: {ex.Message}");
                 }
 
-                // If we're the first player to join and we don't have a GameStateManager yet, spawn one
+                // Spawn GameStateManager if first player
                 if (runner.IsServer && FindObjectOfType<GameStateManager>() == null)
                 {
-                    Debug.Log("Spawning GameStateManager");
                     runner.Spawn(_gameStateManagerPrefab);
                 }
             }
