@@ -20,15 +20,31 @@ public class RoomBrowserUI : MonoBehaviour
     private NetworkRunnerHandler _networkRunnerHandler;
     private List<GameObject> _roomEntries = new List<GameObject>();
 
-    private void Start()
+    void Start()
     {
+        // Get reference to NetworkRunnerHandler
         _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>();
+
+        if (_networkRunnerHandler == null)
+        {
+            Debug.LogError("NetworkRunnerHandler not found! Room browser will not function.");
+        }
 
         if (_refreshButton != null)
             _refreshButton.onClick.AddListener(RefreshRoomList);
 
         if (_backButton != null)
-            _backButton.onClick.AddListener(() => _joinGamePanel.SetActive(false));
+            _backButton.onClick.AddListener(() => {
+                if (_joinGamePanel != null)
+                    _joinGamePanel.SetActive(false);
+
+                // Find MainMenuUI and show main panel
+                MainMenuUI mainMenu = FindObjectOfType<MainMenuUI>();
+                if (mainMenu != null)
+                {
+                    mainMenu.ShowMainPanel();
+                }
+            });
 
         if (_directJoinButton != null)
             _directJoinButton.onClick.AddListener(OnDirectJoinClicked);
@@ -37,14 +53,30 @@ public class RoomBrowserUI : MonoBehaviour
     // This is the method to call from MainMenuUI
     public void ShowRoomBrowser()
     {
-        _joinGamePanel.SetActive(true);
-        RefreshRoomList();
+        if (_joinGamePanel != null)
+        {
+            _joinGamePanel.SetActive(true);
+            RefreshRoomList();
+        }
+        else
+        {
+            Debug.LogError("Join Game Panel reference is missing in RoomBrowserUI");
+        }
     }
 
     private async void OnDirectJoinClicked()
     {
-        if (_networkRunnerHandler == null || _roomCodeInput == null)
+        if (_networkRunnerHandler == null)
+        {
+            Debug.LogError("Cannot join room - NetworkRunnerHandler is null");
             return;
+        }
+
+        if (_roomCodeInput == null)
+        {
+            Debug.LogError("Room Code Input field is missing");
+            return;
+        }
 
         string roomCode = _roomCodeInput.text.Trim();
         if (string.IsNullOrEmpty(roomCode))
@@ -59,6 +91,25 @@ public class RoomBrowserUI : MonoBehaviour
 
     public void RefreshRoomList()
     {
+        // Add this null check at the beginning
+        if (_networkRunnerHandler == null)
+        {
+            Debug.LogError("Cannot refresh room list - NetworkRunnerHandler is null");
+            return;
+        }
+
+        if (_roomListContent == null)
+        {
+            Debug.LogError("Room List Content transform is missing");
+            return;
+        }
+
+        if (_roomEntryPrefab == null)
+        {
+            Debug.LogError("Room Entry Prefab is missing");
+            return;
+        }
+
         // Clear existing entries
         foreach (var entry in _roomEntries)
         {
@@ -121,8 +172,15 @@ public class RoomBrowserUI : MonoBehaviour
             if (joinButton != null)
             {
                 joinButton.onClick.AddListener(() => {
-                    _networkRunnerHandler.StartClientGameBySessionInfo(session);
-                    _joinGamePanel.SetActive(false);
+                    if (_networkRunnerHandler != null)
+                    {
+                        _networkRunnerHandler.StartClientGameBySessionInfo(session);
+                    }
+
+                    if (_joinGamePanel != null)
+                    {
+                        _joinGamePanel.SetActive(false);
+                    }
                 });
             }
         }

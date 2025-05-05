@@ -8,6 +8,8 @@ public class MainMenuUI : MonoBehaviour
     [Header("UI Elements")]
     [SerializeField] private Button _hostButton;
     [SerializeField] private Button _joinButton;
+    [SerializeField] private Button _settingsButton;
+    [SerializeField] private Button _quitButton;
     [SerializeField] private TMP_InputField _sessionNameInput;
     [SerializeField] private TMP_InputField _playerNameInput;
     [SerializeField] private TextMeshProUGUI _statusText;
@@ -32,22 +34,25 @@ public class MainMenuUI : MonoBehaviour
 
     [Header("Navigation Buttons")]
     [SerializeField] private Button _hostGameNavButton;
-    [SerializeField] private Button _joinGameNavButton; // Points to the combined panel
+    [SerializeField] private Button _joinGameNavButton;
     [SerializeField] private Button _settingsNavButton;
 
     private NetworkRunnerHandler _networkRunnerHandler;
 
     private void Start()
     {
-        UnityEngine.Debug.Log("MainMenuUI Start");
+        Debug.Log("MainMenuUI Start method executing");
 
         // Get NetworkRunnerHandler
         _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>();
 
         if (_networkRunnerHandler == null)
         {
-            UnityEngine.Debug.LogError("NetworkRunnerHandler not found.");
-            return;
+            Debug.LogError("NetworkRunnerHandler not found");
+        }
+        else
+        {
+            Debug.Log("NetworkRunnerHandler found successfully");
         }
 
         // Set default session name
@@ -62,64 +67,124 @@ public class MainMenuUI : MonoBehaviour
             _playerNameInput.text = "Player" + UnityEngine.Random.Range(1000, 9999);
         }
 
-        // Set up UI callbacks
-        if (_hostButton != null)
-        {
-            _hostButton.onClick.AddListener(OnHostButtonClicked);
-        }
+        // Set up UI callbacks - Clear all listeners first to avoid duplicates
+        SetupButton(_hostButton, () => {
+            Debug.Log("Host button clicked");
+            ShowPanel(_hostPanel);
+        }, "Host Button");
 
-        if (_joinButton != null)
-        {
-            _joinButton.onClick.AddListener(OnJoinButtonClicked);
-        }
+        SetupButton(_joinButton, () => {
+            Debug.Log("Join button clicked");
+            ShowPanel(_joinGamePanel);
+
+            // Also refresh room list if room browser UI exists
+            if (_roomBrowserUI != null)
+            {
+                _roomBrowserUI.ShowRoomBrowser();
+            }
+        }, "Join Button");
+
+        SetupButton(_settingsButton, () => {
+            Debug.Log("Settings button clicked");
+            ShowPanel(_settingsPanel);
+        }, "Settings Button");
+
+        SetupButton(_quitButton, OnQuitButtonClicked, "Quit Button");
 
         if (_showBrowserButton != null)
         {
+            _showBrowserButton.onClick.RemoveAllListeners();
             _showBrowserButton.onClick.AddListener(() => {
+                Debug.Log("Show Browser button clicked");
+                ShowPanel(_joinGamePanel);
+
                 if (_roomBrowserUI != null)
+                {
                     _roomBrowserUI.ShowRoomBrowser();
+                }
+                else
+                {
+                    Debug.LogWarning("RoomBrowserUI reference is missing");
+                }
             });
+            Debug.Log("Show Browser button setup complete");
         }
 
         if (_directJoinButton != null)
         {
+            _directJoinButton.onClick.RemoveAllListeners();
             _directJoinButton.onClick.AddListener(OnDirectJoinButtonClicked);
+            Debug.Log("Direct Join button setup complete");
         }
 
-        // Hide loading panel initially
-        if (_loadingPanel != null)
+        // Host Panel-specific buttons
+        if (_hostPanel != null)
         {
-            _loadingPanel.SetActive(false);
+            Button hostStartButton = _hostPanel.transform.Find("Host")?.GetComponent<Button>();
+            if (hostStartButton != null)
+            {
+                hostStartButton.onClick.RemoveAllListeners();
+                hostStartButton.onClick.AddListener(OnHostGameStartClicked);
+                Debug.Log("Host Start button setup complete");
+            }
         }
-        if (_showBrowserButton != null)
-        {
-            _showBrowserButton.onClick.AddListener(() => {
-                // First hide the main panel and show join panel
-                ShowPanel(_joinGamePanel);
 
-                // Then refresh the room list
-                if (_roomBrowserUI != null)
-                    _roomBrowserUI.ShowRoomBrowser();
-            });
+        // Ensure main panel is active at start
+        ShowPanel(_mainPanel);
+
+        // Set up back buttons
+        SetupBackButtons();
+
+        Debug.Log("MainMenuUI initialization complete");
+    }
+
+    private void SetupButton(Button button, UnityEngine.Events.UnityAction action, string buttonName)
+    {
+        if (button != null)
+        {
+            button.onClick.RemoveAllListeners();
+            button.onClick.AddListener(action);
+            Debug.Log($"{buttonName} setup complete");
+        }
+        else
+        {
+            Debug.LogWarning($"{buttonName} reference is missing");
         }
     }
 
-    private void ShowPanel(GameObject panelToShow)
+    // Public method to allow other scripts to show the main panel
+    public void ShowMainPanel()
     {
-        // Hide all panels
+        ShowPanel(_mainPanel);
+    }
+
+    public void ShowPanel(GameObject panelToShow)
+    {
+        if (panelToShow == null)
+        {
+            Debug.LogError("ShowPanel called with NULL panel reference!");
+            return;
+        }
+
+        Debug.Log($"Showing panel: {panelToShow.name}");
+
+        // Disable all panels first
         if (_mainPanel != null) _mainPanel.SetActive(false);
         if (_hostPanel != null) _hostPanel.SetActive(false);
         if (_joinGamePanel != null) _joinGamePanel.SetActive(false);
         if (_settingsPanel != null) _settingsPanel.SetActive(false);
         if (_loadingPanel != null) _loadingPanel.SetActive(false);
 
-        // Show the selected panel
-        if (panelToShow != null)
-            panelToShow.SetActive(true);
+        // Then enable the requested panel
+        panelToShow.SetActive(true);
+
+        // Verify it worked
+        Debug.Log($"Panel {panelToShow.name} active state: {panelToShow.activeSelf}");
     }
-    private async void OnHostButtonClicked()
+
+    private async void OnHostGameStartClicked()
     {
-        UnityEngine.Debug.Log("Host button clicked");
+        Debug.Log("Host Game Start button clicked");
 
         // Save player name
         SavePlayerName();
@@ -135,33 +200,21 @@ public class MainMenuUI : MonoBehaviour
         }
 
         // Start host using the updated method
-        await _networkRunnerHandler.StartHostGame(sessionName);
-    }
-
-    private async void OnJoinButtonClicked()
-    {
-        UnityEngine.Debug.Log("Join button clicked");
-
-        // Save player name
-        SavePlayerName();
-
-        // Show loading UI
-        ShowLoadingUI("Joining game...");
-
-        // Get session name
-        string sessionName = _defaultSessionName;
-        if (_sessionNameInput != null && !string.IsNullOrEmpty(_sessionNameInput.text))
+        if (_networkRunnerHandler != null)
         {
-            sessionName = _sessionNameInput.text;
+            await _networkRunnerHandler.StartHostGame(sessionName);
         }
-
-        // Join game using the updated method
-        await _networkRunnerHandler.StartClientGame(sessionName);
+        else
+        {
+            Debug.LogError("Cannot start host - NetworkRunnerHandler is null");
+            // Return to main panel if failed
+            ShowPanel(_mainPanel);
+        }
     }
 
     private async void OnDirectJoinButtonClicked()
     {
-        UnityEngine.Debug.Log("Direct join button clicked");
+        Debug.Log("Direct join button clicked");
 
         // Save player name
         SavePlayerName();
@@ -181,13 +234,32 @@ public class MainMenuUI : MonoBehaviour
             // Show error and return to main menu
             ShowLoadingUI("Invalid room code. Please try again.");
             await Task.Delay(2000); // Wait 2 seconds to show error
-            _loadingPanel.SetActive(false);
-            _mainPanel.SetActive(true);
+            ShowPanel(_mainPanel);
             return;
         }
 
         // Join game by hash
-        await _networkRunnerHandler.StartClientGameByHash(roomCode);
+        if (_networkRunnerHandler != null)
+        {
+            await _networkRunnerHandler.StartClientGameByHash(roomCode);
+        }
+        else
+        {
+            Debug.LogError("Cannot join by hash - NetworkRunnerHandler is null");
+            // Return to main panel if failed
+            ShowPanel(_mainPanel);
+        }
+    }
+
+    private void OnQuitButtonClicked()
+    {
+        Debug.Log("Quit button clicked");
+
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+        Application.Quit();
+#endif
     }
 
     private void SavePlayerName()
@@ -201,19 +273,46 @@ public class MainMenuUI : MonoBehaviour
 
     private void ShowLoadingUI(string statusMessage)
     {
-        if (_mainPanel != null)
-        {
-            _mainPanel.SetActive(false);
-        }
-
-        if (_loadingPanel != null)
-        {
-            _loadingPanel.SetActive(true);
-        }
+        ShowPanel(_loadingPanel);
 
         if (_statusText != null)
         {
             _statusText.text = statusMessage;
         }
+    }
+
+    // Add this to set up all back buttons
+    private void SetupBackButtons()
+    {
+        // Find and set up all back buttons
+        SetupBackButton(_hostPanel, "HostPanel");
+        SetupBackButton(_settingsPanel, "SettingsPanel");
+        // Note: JoinGamePanel's back button is handled by RoomBrowserUI
+    }
+
+    private void SetupBackButton(GameObject panel, string panelName)
+    {
+        if (panel == null) return;
+
+        // Find the back button within this panel
+        Button backButton = panel.transform.Find("Back")?.GetComponent<Button>();
+
+        if (backButton != null)
+        {
+            backButton.onClick.RemoveAllListeners();
+            backButton.onClick.AddListener(() => OnBackButtonClicked(panelName));
+            Debug.Log($"Back button for {panelName} set up");
+        }
+        else
+        {
+            Debug.LogWarning($"Back button for {panelName} not found");
+        }
+    }
+
+    // Add this method to handle back button clicks from any panel
+    public void OnBackButtonClicked(string fromPanel)
+    {
+        Debug.Log($"Back button clicked from {fromPanel}");
+        ShowPanel(_mainPanel);  // Return to main panel
     }
 }
