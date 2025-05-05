@@ -30,6 +30,12 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     public bool IsSessionActive => _runner != null && _runner.IsRunning;
     public NetworkRunner Runner => _runner;
 
+    // Expose available sessions for the room browser
+    public List<SessionInfo> GetAvailableSessions()
+    {
+        return new List<SessionInfo>(_availableSessions);
+    }
+
     private void Awake()
     {
         // Cache the network runner at startup if it exists
@@ -82,7 +88,16 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             UnityEngine.Debug.Log($"Available Sessions ({_availableSessions.Count}):");
             foreach (var session in _availableSessions)
             {
-                UnityEngine.Debug.Log($"- {session.Name} | Players: {session.PlayerCount}/{session.MaxPlayers} | Region: {session.Region}");
+                string displayName = session.Name;
+                string hash = "N/A";
+
+                if (session.Properties.TryGetValue("DisplayName", out var nameObj))
+                    displayName = nameObj.PropertyValue.ToString();
+
+                if (session.Properties.TryGetValue("Hash", out var hashObj))
+                    hash = hashObj.PropertyValue.ToString();
+
+                UnityEngine.Debug.Log($"- {displayName} | Hash: {hash} | Players: {session.PlayerCount}/{session.MaxPlayers} | Region: {session.Region}");
             }
         }
         else
@@ -107,12 +122,21 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
 
             UnityEngine.Debug.Log($"Starting game as Host with name: {SessionDisplayName} | ID: {SessionUniqueID} | Hash: {SessionHash}");
 
+            // Create session properties dictionary - using direct assignment
+            var sessionProps = new Dictionary<string, SessionProperty>();
+
+            // Add properties using direct assignment (implicit conversion handles it)
+            sessionProps.Add("DisplayName", SessionDisplayName);
+            sessionProps.Add("Hash", SessionHash);
+            sessionProps.Add("StartTime", (int)SessionStartTime); // Convert long to int
+
             // Start the game in host mode
             var startGameArgs = new StartGameArgs()
             {
                 GameMode = GameMode.Host,
                 SessionName = SessionUniqueID, // Use unique ID for actual session name
-                SceneManager = _sceneManager
+                SceneManager = _sceneManager,
+                SessionProperties = sessionProps // Add the properties
             };
 
             var result = await _runner.StartGame(startGameArgs);
@@ -140,6 +164,98 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
+    // New method to join directly by hash
+    public async Task StartClientGameByHash(string hash)
+    {
+        try
+        {
+            // Find the session with matching hash
+            SessionInfo targetSession = null;
+            foreach (var session in _availableSessions)
+            {
+                // We need to check if the property exists and then compare values
+                if (session.Properties.TryGetValue("Hash", out var sessionHash) &&
+                    sessionHash.PropertyValue.ToString() == hash)
+                {
+                    targetSession = session;
+                    Debug.Log($"Found session with matching hash: {session.Name}");
+                    break;
+                }
+            }
+
+            if (targetSession != null)
+            {
+                await StartClientGameBySessionInfo(targetSession);
+            }
+            else
+            {
+                Debug.LogError($"No session found with hash: {hash}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"Error joining game by hash: {ex.Message}\n{ex.StackTrace}");
+        }
+    }
+
+    // Method to join by SessionInfo
+    public async Task StartClientGameBySessionInfo(SessionInfo sessionInfo)
+    {
+        try
+        {
+            _runner.ProvideInput = true;
+            _isJoining = true;
+
+            // Get info from session properties if available
+            if (sessionInfo.Properties.TryGetValue("DisplayName", out var displayNameObj))
+                SessionDisplayName = displayNameObj.PropertyValue.ToString();
+            else
+                SessionDisplayName = sessionInfo.Name;
+
+            if (sessionInfo.Properties.TryGetValue("Hash", out var hashObj))
+                SessionHash = hashObj.PropertyValue.ToString();
+
+            Debug.Log($"Joining session: {SessionDisplayName} with hash: {SessionHash}");
+
+            var startGameArgs = new StartGameArgs()
+            {
+                GameMode = GameMode.Client,
+                SessionName = sessionInfo.Name, // Use the exact session name
+                SceneManager = _sceneManager
+            };
+
+            var result = await _runner.StartGame(startGameArgs);
+
+            if (result.Ok)
+            {
+                Debug.Log($"Client game started successfully");
+
+                // Update SessionUniqueID from connected session
+                if (_runner.SessionInfo != null)
+                {
+                    SessionUniqueID = _runner.SessionInfo.Name;
+                    Debug.Log($"Connected to session: {SessionDisplayName} | ID: {SessionUniqueID} | Hash: {SessionHash}");
+                }
+                else
+                {
+                    Debug.LogError("Connected but SessionInfo is null!");
+                }
+            }
+            else
+            {
+                Debug.LogError($"Failed to join game: {result.ShutdownReason}");
+            }
+
+            _isJoining = false;
+        }
+        catch (Exception ex)
+        {
+            _isJoining = false;
+            Debug.LogError($"Error joining game: {ex.Message}\n{ex.StackTrace}");
+        }
+    }
+
+    // Original join method (keeping for backward compatibility)
     public async Task StartClientGame(string sessionName)
     {
         try
@@ -147,31 +263,40 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             _runner.ProvideInput = true;
             _isJoining = true;
 
-            UnityEngine.Debug.Log($"Joining game with session name: {sessionName}");
+            UnityEngine.Debug.Log($"Looking for session containing name: {sessionName}");
 
             // Store the session name for display purposes
             SessionDisplayName = sessionName;
 
-            // First, try to get an updated session list
-            UnityEngine.Debug.Log("Trying to get session list through callback...");
-
-            // If we have any matching sessions in our cached list, log them
-            bool sessionFound = false;
+            // Try to find a session with matching name in our cached list
+            SessionInfo targetSession = null;
             foreach (var session in _availableSessions)
             {
+                // Check if this session has the DisplayName property with our target name
+                if (session.Properties.TryGetValue("DisplayName", out var nameObj) &&
+                    nameObj.PropertyValue.ToString() == sessionName)
+                {
+                    targetSession = session;
+                    break;
+                }
+
+                // Fallback to checking if the actual session name contains our target
                 if (session.Name.Contains(sessionName))
                 {
-                    sessionFound = true;
-                    UnityEngine.Debug.Log($"Found matching session: {session.Name} with {session.PlayerCount} players");
+                    targetSession = session;
+                    break;
                 }
             }
 
-            if (!sessionFound)
+            if (targetSession != null)
             {
-                UnityEngine.Debug.LogWarning($"Warning: No session containing '{sessionName}' found in cached session list, but attempting to join anyway");
+                await StartClientGameBySessionInfo(targetSession);
+                return;
             }
 
-            // Start the game in client mode
+            // If we couldn't find it in the cache, try direct connection with the name
+            UnityEngine.Debug.LogWarning($"No session found with name '{sessionName}', attempting direct connection");
+
             var startGameArgs = new StartGameArgs()
             {
                 GameMode = GameMode.Client,
@@ -179,12 +304,11 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
                 SceneManager = _sceneManager
             };
 
-            UnityEngine.Debug.Log("Starting client game...");
             var result = await _runner.StartGame(startGameArgs);
 
             if (result.Ok)
             {
-                UnityEngine.Debug.Log($"Client game started successfully");
+                UnityEngine.Debug.Log($"Client game started successfully via direct connection");
 
                 // The session ID is the actual session name used internally
                 if (_runner.SessionInfo != null)
@@ -336,7 +460,16 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             UnityEngine.Debug.Log("Available sessions while joining:");
             foreach (var session in sessionList)
             {
-                UnityEngine.Debug.Log($"- {session.Name} | Players: {session.PlayerCount}/{session.MaxPlayers}");
+                string displayName = session.Name;
+                string hash = "N/A";
+
+                if (session.Properties.TryGetValue("DisplayName", out var nameObj))
+                    displayName = nameObj.PropertyValue.ToString();
+
+                if (session.Properties.TryGetValue("Hash", out var hashObj))
+                    hash = hashObj.PropertyValue.ToString();
+
+                UnityEngine.Debug.Log($"- {displayName} | Hash: {hash} | Players: {session.PlayerCount}/{session.MaxPlayers}");
             }
         }
     }
