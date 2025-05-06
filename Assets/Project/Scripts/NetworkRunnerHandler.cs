@@ -121,6 +121,11 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     {
         try
         {
+            Debug.Log("Starting host game with session name: " + sessionName);
+
+            // Reset the runner first to ensure clean state
+            await ResetNetworkRunner();
+
             _runner.ProvideInput = true;
 
             // Set up session codes using our system
@@ -132,8 +137,8 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             sessionProps.Add("Hash", SessionHash);
             sessionProps.Add("StartTime", (int)SessionStartTime);
 
-            // In Fusion 2.0.5, we can't set the region in StartGameArgs
-            // Configure region via Photon AppSettings if needed
+            // Note: In Fusion 2.0.5, we can't set the region directly
+            // You would need to configure this in the Photon settings in the Editor
 
             // Start the game in host mode
             var startGameArgs = new StartGameArgs()
@@ -233,7 +238,8 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         {
             var tempArgs = new StartGameArgs()
             {
-                GameMode = GameMode.AutoHostOrClient,
+                GameMode = GameMode.Client,
+                SessionName = string.Empty, // Empty string instead of null to avoid auto-joining
                 SceneManager = _sceneManager
             };
 
@@ -264,49 +270,144 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
 
     public async Task ForceActiveSessionRefresh()
     {
-        Debug.Log("Actively refreshing session list...");
+        Debug.Log("[BROWSER] Starting session refresh...");
 
-        // First, handle the case where runner isn't started
-        if (_runner == null || !_runner.IsRunning)
+        // Check if we have a valid runner first
+        if (_runner == null)
         {
-            var tempArgs = new StartGameArgs()
-            {
-                GameMode = GameMode.AutoHostOrClient,
-                SceneManager = _sceneManager
-            };
+            Debug.LogError("[BROWSER] NetworkRunner is null! Cannot refresh sessions.");
+            return;
+        }
 
+        // If we're already in a connected session, we can't use the same runner for discovery
+        if (_runner.IsRunning && _runner.SessionInfo != null)
+        {
+            Debug.Log("[BROWSER] Already in a session, using existing session list");
+            return;
+        }
+
+        // Ensure our runner is in a suitable state for finding sessions
+        bool needToRestartRunner = false;
+
+        // If the runner is in an invalid state, shut it down first
+        if (_runner.IsRunning && !_runner.IsShutdown)
+        {
             try
             {
-                await _runner.StartGame(tempArgs);
-                Debug.Log("Started temporary session for discovery");
+                Debug.Log("[BROWSER] Shutting down existing runner before refresh");
+                await _runner.Shutdown();
+                await Task.Delay(200); // Short delay to ensure clean shutdown
             }
             catch (Exception ex)
             {
-                Debug.LogError($"Error starting temp session: {ex.Message}");
+                Debug.LogError($"[BROWSER] Error shutting down runner: {ex.Message}");
+            }
+            needToRestartRunner = true;
+        }
+        else if (!_runner.IsRunning)
+        {
+            needToRestartRunner = true;
+        }
+
+        // If needed, restart the runner in a clean state
+        if (needToRestartRunner)
+        {
+            try
+            {
+                Debug.Log("[BROWSER] Starting new runner for session discovery");
+
+                // Use a unique session name to prevent auto-joining
+                string sessionBrowserId = "BROWSER_" + DateTime.Now.Ticks;
+
+                var startGameArgs = new StartGameArgs()
+                {
+                    GameMode = GameMode.Client,
+                    SessionName = sessionBrowserId,
+                    SceneManager = _sceneManager,
+                    IsVisible = false // Don't advertise our temporary session
+                };
+
+                var result = await _runner.StartGame(startGameArgs);
+
+                if (!result.Ok)
+                {
+                    Debug.LogError($"[BROWSER] Failed to start discovery runner: {result.ShutdownReason}");
+                    return;
+                }
+
+                Debug.Log("[BROWSER] Started discovery runner successfully");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[BROWSER] Error creating discovery runner: {ex.Message}");
                 return;
             }
         }
 
-        // In Fusion 2.0.5, we have to rely on the automatic session list updates
+        // Clear existing session list to avoid showing stale data
+        // Store in a temporary variable first to avoid race conditions
+        List<SessionInfo> oldSessions = new List<SessionInfo>(_availableSessions);
+        _availableSessions.Clear();
 
-        // Give network time to respond
-        Debug.Log("Waiting for session list to update...");
-        await Task.Delay(1500); // Longer delay to receive updates
+        // Wait for network to respond with session list
+        Debug.Log("[BROWSER] Waiting for session list updates...");
+        await Task.Delay(2000); // Wait for session list updates
 
-        // Log current sessions
-        Debug.Log($"Found {_availableSessions.Count} sessions after refresh");
+        // If we received no new sessions, restore the old list
+        if (_availableSessions.Count == 0 && oldSessions.Count > 0)
+        {
+            Debug.Log("[BROWSER] No new sessions found, restoring previous session list");
+            _availableSessions = oldSessions;
+        }
+
+        // Log what was found
+        Debug.Log($"[BROWSER] Found {_availableSessions.Count} sessions:");
         foreach (var session in _availableSessions)
         {
-            string displayName = "Unknown";
+            string name = "Unknown";
             string hash = "Unknown";
 
             if (session.Properties.TryGetValue("DisplayName", out var nameObj))
-                displayName = nameObj.PropertyValue.ToString();
+                name = nameObj.PropertyValue.ToString();
+
             if (session.Properties.TryGetValue("Hash", out var hashObj))
                 hash = hashObj.PropertyValue.ToString();
 
-            Debug.Log($"Session: {displayName} | Hash: {hash} | Players: {session.PlayerCount}/{session.MaxPlayers}");
+            Debug.Log($"[BROWSER] - {name} | Hash: {hash} | Players: {session.PlayerCount}/{session.MaxPlayers}");
         }
+    }
+
+    public async Task ResetNetworkRunner()
+    {
+        Debug.Log("Resetting NetworkRunner...");
+
+        // If we have an active session, shut it down properly
+        if (Runner != null && Runner.IsRunning)
+        {
+            try
+            {
+                Debug.Log("Shutting down previous session");
+                await Runner.Shutdown();
+
+                // Wait a bit to ensure clean shutdown
+                await Task.Delay(300);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Error during runner shutdown: {ex.Message}");
+            }
+        }
+
+        // Reset session info
+        SessionDisplayName = string.Empty;
+        SessionUniqueID = string.Empty;
+        SessionHash = string.Empty;
+        SessionStartTime = 0;
+
+        // Clear available sessions cache
+        _availableSessions.Clear();
+
+        Debug.Log("NetworkRunner reset complete");
     }
 
     // Method to join by SessionInfo

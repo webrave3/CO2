@@ -5,6 +5,7 @@ using System.Collections;
 using System.Collections.Generic;
 using Fusion;
 using System;
+using System.Threading.Tasks;
 
 public class RoomBrowserUI : MonoBehaviour
 {
@@ -85,23 +86,66 @@ public class RoomBrowserUI : MonoBehaviour
     // This is the method to call from MainMenuUI
     public void ShowRoomBrowser()
     {
-        if (_joinGamePanel != null)
+        Debug.Log("[UI] ShowRoomBrowser called");
+
+        if (_joinGamePanel == null)
         {
-            _joinGamePanel.SetActive(true);
+            Debug.LogError("[UI] Join Game Panel reference is missing!");
+            return;
+        }
 
-            // Clear any previous status messages
-            if (_statusText != null)
-                _statusText.gameObject.SetActive(false);
+        // Step 1: Show the panel first
+        _joinGamePanel.SetActive(true);
 
-            // Clear room code input field
-            if (_roomCodeInput != null)
-                _roomCodeInput.text = "";
+        // Step 2: Reset UI state
+        if (_statusText != null)
+        {
+            _statusText.text = "Loading room list...";
+            _statusText.color = Color.white;
+            _statusText.gameObject.SetActive(true);
+        }
 
-            RefreshRoomList();
+        if (_roomCodeInput != null)
+        {
+            _roomCodeInput.text = "";
+        }
+
+        // Step 3: Make sure room list content is visible
+        if (_roomListContent != null)
+        {
+            _roomListContent.gameObject.SetActive(true);
+            // Ensure it's visible in hierarchy
+            Transform parent = _roomListContent.parent;
+            while (parent != null)
+            {
+                parent.gameObject.SetActive(true);
+                parent = parent.parent;
+            }
         }
         else
         {
-            Debug.LogError("Join Game Panel reference is missing in RoomBrowserUI");
+            Debug.LogError("[UI] Room list content reference is missing!");
+        }
+
+        // Step 4: Clear existing entries before refreshing
+        ClearRoomEntries();
+
+        // Add placeholder rooms first for better user experience
+        if (_showPlaceholderWhenEmpty)
+        {
+            AddPlaceholderRooms();
+        }
+
+        // Step 5: Start refreshing rooms
+        if (_networkRunnerHandler != null)
+        {
+            RefreshRoomList();
+            Debug.Log("[UI] Started room list refresh");
+        }
+        else
+        {
+            Debug.LogError("[UI] NetworkRunnerHandler is null!");
+            ShowStatusMessage("Network system not available", Color.red);
         }
     }
 
@@ -181,26 +225,148 @@ public class RoomBrowserUI : MonoBehaviour
 
     public async void RefreshRoomList()
     {
+        Debug.Log("[UI] RefreshRoomList called");
+
+        // Safety check first
         if (_networkRunnerHandler == null)
         {
             ShowStatusMessage("Network system not initialized", Color.red);
+            Debug.LogError("[UI] NetworkRunnerHandler is null during refresh!");
             return;
         }
 
         if (_roomListContent == null || _roomEntryPrefab == null)
         {
-            Debug.LogError("Room list references missing");
+            Debug.LogError("[UI] Room list references missing");
             return;
         }
 
-        // Force refresh sessions from network using our enhanced method
-        await _networkRunnerHandler.ForceActiveSessionRefresh();
+        try
+        {
+            // Show refresh indicator
+            ShowStatusMessage("Refreshing room list...", Color.white);
 
-        // Show a temporary refreshing message
-        ShowStatusMessage("Refreshing room list...", Color.white, 1.5f);
+            // Clear existing entries
+            ClearRoomEntries();
 
-        // Give network some time to update
-        StartCoroutine(RefreshAfterDelay(0.5f));
+            // Make sure list is visible
+            if (_roomListContent != null && !_roomListContent.gameObject.activeSelf)
+            {
+                _roomListContent.gameObject.SetActive(true);
+                Debug.Log("[UI] Activated room list content");
+            }
+
+            // Add placeholder rooms for user experience while refreshing
+            if (_showPlaceholderWhenEmpty)
+            {
+                AddPlaceholderRooms();
+            }
+
+            // Force network refresh
+            await _networkRunnerHandler.ForceActiveSessionRefresh();
+
+            // Delay slightly to ensure data is ready
+            await Task.Delay(500);
+
+            // Update the UI with received sessions
+            PopulateRoomList();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[UI] Error during room refresh: {ex.Message}\n{ex.StackTrace}");
+            ShowStatusMessage($"Error: {ex.Message}", Color.red);
+        }
+    }
+
+    // Add this helper method
+    private void ClearRoomEntries()
+    {
+        foreach (var entry in _roomEntries)
+        {
+            Destroy(entry);
+        }
+        _roomEntries.Clear();
+        Debug.Log("Cleared existing room entries");
+    }
+
+    // Add this helper method to separate UI updates from data fetching
+    private void PopulateRoomList()
+    {
+        // Clear previous entries first
+        ClearRoomEntries();
+
+        // Get available sessions from the NetworkRunnerHandler
+        List<SessionInfo> availableSessions = _networkRunnerHandler.GetAvailableSessions();
+
+        Debug.Log($"[UI] PopulateRoomList with {availableSessions.Count} sessions");
+
+        bool anyRealRoomsShown = false;
+
+        // Add real sessions if they exist
+        if (availableSessions.Count > 0)
+        {
+            foreach (var session in availableSessions)
+            {
+                // Skip session if it's our own temporary browser session
+                if (session.Name.StartsWith("BROWSER_"))
+                    continue;
+
+                GameObject entryGO = Instantiate(_roomEntryPrefab, _roomListContent);
+                _roomEntries.Add(entryGO);
+                anyRealRoomsShown = true;
+
+                // Setup entry UI
+                TextMeshProUGUI roomNameText = entryGO.GetComponentInChildren<TextMeshProUGUI>();
+                if (roomNameText != null)
+                {
+                    string sessionHash = "Unknown";
+                    string displayName = session.Name;
+                    string regionText = "Unknown";
+
+                    if (session.Properties.TryGetValue("Hash", out var hashObj))
+                        sessionHash = hashObj.PropertyValue.ToString();
+
+                    if (session.Properties.TryGetValue("DisplayName", out var nameObj))
+                        displayName = nameObj.PropertyValue.ToString();
+
+                    if (session.Properties.TryGetValue("Region", out var regionObj))
+                        regionText = regionObj.PropertyValue.ToString();
+
+                    roomNameText.text = $"{displayName}\nPlayers: {session.PlayerCount}/{session.MaxPlayers}\nRegion: {regionText}\nCode: {sessionHash}";
+                }
+
+                // Configure join button
+                Button joinButton = entryGO.GetComponentInChildren<Button>();
+                if (joinButton != null)
+                {
+                    SessionInfo sessionToJoin = session;
+                    joinButton.onClick.AddListener(() => {
+                        JoinSession(sessionToJoin);
+                    });
+                }
+            }
+
+            // Show success message if we found rooms
+            if (anyRealRoomsShown)
+            {
+                ShowStatusMessage($"Found {availableSessions.Count} games", Color.green, 2f);
+            }
+        }
+
+        // If no real rooms were shown, conditionally show placeholders
+        if (!anyRealRoomsShown)
+        {
+            if (_showPlaceholderWhenEmpty)
+            {
+                // We already cleared entries so need to add again
+                AddPlaceholderRooms();
+                ShowStatusMessage("No active games found, showing examples", Color.yellow);
+            }
+            else
+            {
+                ShowStatusMessage("No active games found", Color.yellow);
+            }
+        }
     }
 
     // Debug method for room discovery
