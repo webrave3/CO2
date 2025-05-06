@@ -1,25 +1,34 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System.Collections;
 using System.Collections.Generic;
 using Fusion;
-using System.Collections;
+using System;
 
 public class RoomBrowserUI : MonoBehaviour
 {
+    [Header("UI References")]
     [SerializeField] private GameObject _joinGamePanel;
-    [SerializeField] private GameObject _roomEntryPrefab;
     [SerializeField] private Transform _roomListContent;
+    [SerializeField] private GameObject _roomEntryPrefab;
     [SerializeField] private Button _refreshButton;
     [SerializeField] private Button _backButton;
-    [SerializeField] private bool _showPlaceholderWhenEmpty = true;
 
-    // Direct Join elements
+    [Header("Direct Join")]
     [SerializeField] private TMP_InputField _roomCodeInput;
     [SerializeField] private Button _directJoinButton;
+    [SerializeField] private TextMeshProUGUI _statusText;
+    [SerializeField] private float _statusMessageDuration = 3f;
+    [SerializeField] private GameObject _joiningIndicator;
+
+    [Header("Settings")]
+    [SerializeField] private bool _showPlaceholderWhenEmpty = true;
 
     private NetworkRunnerHandler _networkRunnerHandler;
     private List<GameObject> _roomEntries = new List<GameObject>();
+    private bool _isJoining = false;
+    private Coroutine _statusMessageCoroutine;
 
     void Start()
     {
@@ -31,6 +40,14 @@ public class RoomBrowserUI : MonoBehaviour
             Debug.LogError("NetworkRunnerHandler not found! Room browser will not function.");
         }
 
+        // Initialize UI elements
+        if (_statusText != null)
+            _statusText.gameObject.SetActive(false);
+
+        if (_joiningIndicator != null)
+            _joiningIndicator.SetActive(false);
+
+        // Set up button listeners
         if (_refreshButton != null)
             _refreshButton.onClick.AddListener(RefreshRoomList);
 
@@ -57,6 +74,15 @@ public class RoomBrowserUI : MonoBehaviour
         if (_joinGamePanel != null)
         {
             _joinGamePanel.SetActive(true);
+
+            // Clear any previous status messages
+            if (_statusText != null)
+                _statusText.gameObject.SetActive(false);
+
+            // Clear room code input field
+            if (_roomCodeInput != null)
+                _roomCodeInput.text = "";
+
             RefreshRoomList();
         }
         else
@@ -67,54 +93,99 @@ public class RoomBrowserUI : MonoBehaviour
 
     private async void OnDirectJoinClicked()
     {
+        // Prevent multiple join attempts
+        if (_isJoining)
+            return;
+
         if (_networkRunnerHandler == null)
         {
-            Debug.LogError("Cannot join room - NetworkRunnerHandler is null");
-            return;
-        }
-
-        if (_roomCodeInput == null)
-        {
-            Debug.LogError("Room Code Input field is missing");
+            ShowStatusMessage("Network system not initialized", Color.red);
             return;
         }
 
         string roomCode = _roomCodeInput.text.Trim();
         if (string.IsNullOrEmpty(roomCode))
         {
-            Debug.LogWarning("Room code is empty");
+            ShowStatusMessage("Please enter a room code", Color.red);
             return;
         }
 
-        Debug.Log($"Attempting to join room with code: {roomCode}");
-        await _networkRunnerHandler.StartClientGameByHash(roomCode);
+        // Start joining process
+        _isJoining = true;
+
+        // Show joining indicator
+        if (_joiningIndicator != null)
+            _joiningIndicator.SetActive(true);
+
+        // Disable join button during attempt
+        if (_directJoinButton != null)
+            _directJoinButton.interactable = false;
+
+        ShowStatusMessage($"Joining room: {roomCode}...", Color.white);
+
+        try
+        {
+            // Try to join with the room code
+            await _networkRunnerHandler.StartClientGameByHash(roomCode);
+
+            // If we get here and we're still not connected after a second,
+            // show failure message
+            StartCoroutine(CheckJoinResult());
+        }
+        catch (Exception ex)
+        {
+            // Show error and reset UI
+            ShowStatusMessage($"Error joining: {ex.Message}", Color.red);
+            ResetJoiningState();
+        }
+    }
+
+    private IEnumerator CheckJoinResult()
+    {
+        yield return new WaitForSeconds(1.5f);
+
+        // If we're still on this screen, join likely failed
+        if (_networkRunnerHandler.Runner == null ||
+            !_networkRunnerHandler.Runner.IsRunning ||
+            string.IsNullOrEmpty(_networkRunnerHandler.SessionUniqueID))
+        {
+            ShowStatusMessage("Failed to find game with that code", Color.red);
+            ResetJoiningState();
+        }
+    }
+
+    private void ResetJoiningState()
+    {
+        _isJoining = false;
+
+        if (_joiningIndicator != null)
+            _joiningIndicator.SetActive(false);
+
+        if (_directJoinButton != null)
+            _directJoinButton.interactable = true;
     }
 
     public void RefreshRoomList()
     {
-        // Add this null check at the beginning
         if (_networkRunnerHandler == null)
         {
-            Debug.LogError("Cannot refresh room list - NetworkRunnerHandler is null");
+            ShowStatusMessage("Network system not initialized", Color.red);
             return;
         }
 
-        if (_roomListContent == null)
+        if (_roomListContent == null || _roomEntryPrefab == null)
         {
-            Debug.LogError("Room List Content transform is missing");
+            Debug.LogError("Room list references missing");
             return;
         }
 
-        if (_roomEntryPrefab == null)
-        {
-            Debug.LogError("Room Entry Prefab is missing");
-            return;
-        }
-
-        // First force refresh sessions from network
+        // Force refresh sessions from network
         _networkRunnerHandler.ForceRefreshSessions();
 
-        // Give network some time to update - you might want to show a loading indicator here
+        // Show a temporary refreshing message
+        ShowStatusMessage("Refreshing room list...", Color.white, 1.5f);
+
+        // Give network some time to update
         StartCoroutine(RefreshAfterDelay(0.5f));
     }
 
@@ -135,12 +206,17 @@ public class RoomBrowserUI : MonoBehaviour
 
         Debug.Log($"Room browser found {availableSessions.Count} sessions");
 
-        // ALWAYS add placeholders for testing (modified based on request)
-        AddPlaceholderRooms();
+        // Show placeholder rooms if needed
+        if (_showPlaceholderWhenEmpty || availableSessions.Count == 0)
+        {
+            AddPlaceholderRooms();
+        }
 
-        // Then add real sessions if they exist
+        // Add real sessions if they exist
         if (availableSessions.Count > 0)
         {
+            ShowStatusMessage($"Found {availableSessions.Count} games", Color.green, 2f);
+
             // Create entries for each available session
             foreach (var session in availableSessions)
             {
@@ -171,23 +247,52 @@ public class RoomBrowserUI : MonoBehaviour
                     // Store session in a local variable to avoid closure issues
                     SessionInfo sessionToJoin = session;
                     joinButton.onClick.AddListener(() => {
-                        Debug.Log($"Joining session: {sessionToJoin.Name}");
-                        if (_networkRunnerHandler != null)
-                        {
-                            _networkRunnerHandler.StartClientGameBySessionInfo(sessionToJoin);
-                        }
-
-                        if (_joinGamePanel != null)
-                        {
-                            _joinGamePanel.SetActive(false);
-                        }
+                        JoinSession(sessionToJoin);
                     });
                 }
             }
         }
-        else
+        else if (availableSessions.Count == 0)
         {
-            Debug.Log("No real sessions found, showing only placeholders");
+            // Only show "no sessions" message if we're not showing placeholders
+            if (!_showPlaceholderWhenEmpty)
+            {
+                ShowStatusMessage("No active games found", Color.yellow);
+            }
+        }
+    }
+
+    private async void JoinSession(SessionInfo sessionInfo)
+    {
+        if (_networkRunnerHandler == null)
+            return;
+
+        // Show joining indicator
+        _isJoining = true;
+        if (_joiningIndicator != null)
+            _joiningIndicator.SetActive(true);
+
+        // Get the session hash if available
+        string sessionHash = "Unknown";
+        if (sessionInfo.Properties.TryGetValue("Hash", out var hashObj))
+            sessionHash = hashObj.PropertyValue.ToString();
+
+        ShowStatusMessage($"Joining {sessionHash}...", Color.white);
+
+        try
+        {
+            await _networkRunnerHandler.StartClientGameBySessionInfo(sessionInfo);
+
+            // Hide the panel - successful join will transition to the game scene
+            if (_joinGamePanel != null)
+            {
+                _joinGamePanel.SetActive(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowStatusMessage($"Failed to join: {ex.Message}", Color.red);
+            ResetJoiningState();
         }
     }
 
@@ -195,11 +300,11 @@ public class RoomBrowserUI : MonoBehaviour
     private void AddPlaceholderRooms()
     {
         // Create 5 placeholder entries
-        AddPlaceholderRoomEntry("Corporate Override", "3/6", "A1B2C3D4", "(Example Room)");
-        AddPlaceholderRoomEntry("Research Lab", "2/6", "E5F6G7H8", "(Example Room)");
-        AddPlaceholderRoomEntry("Maintenance Level", "4/6", "I9J0K1L2", "(Example Room)");
-        AddPlaceholderRoomEntry("Security Division", "1/6", "M3N4O5P6", "(Example Room)");
-        AddPlaceholderRoomEntry("Core Access", "5/6", "Q7R8S9T0", "(Example Room)");
+        AddPlaceholderRoomEntry("Corporate Override", "3/6", "RedFox293", "(Example Room)");
+        AddPlaceholderRoomEntry("Research Lab", "2/6", "BlueBird478", "(Example Room)");
+        AddPlaceholderRoomEntry("Maintenance Level", "4/6", "GreenWolf102", "(Example Room)");
+        AddPlaceholderRoomEntry("Security Division", "1/6", "GoldStar845", "(Example Room)");
+        AddPlaceholderRoomEntry("Core Access", "5/6", "SilverMoon367", "(Example Room)");
     }
 
     private void AddPlaceholderRoomEntry(string name, string players, string code, string suffix)
@@ -227,5 +332,44 @@ public class RoomBrowserUI : MonoBehaviour
                 buttonText.text = "Demo";
             }
         }
+    }
+
+    private void ShowStatusMessage(string message, Color color, float duration = 0)
+    {
+        if (_statusText == null)
+            return;
+
+        // Cancel any existing coroutine
+        if (_statusMessageCoroutine != null)
+            StopCoroutine(_statusMessageCoroutine);
+
+        // Show the message
+        _statusText.text = message;
+        _statusText.color = color;
+        _statusText.gameObject.SetActive(true);
+
+        // If duration is specified, hide after that time
+        if (duration > 0 || _statusMessageDuration > 0)
+        {
+            float actualDuration = duration > 0 ? duration : _statusMessageDuration;
+            _statusMessageCoroutine = StartCoroutine(HideStatusAfterDelay(actualDuration));
+        }
+    }
+
+    private IEnumerator HideStatusAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+
+        if (_statusText != null)
+            _statusText.gameObject.SetActive(false);
+
+        _statusMessageCoroutine = null;
+    }
+
+    private void OnDestroy()
+    {
+        // Clean up coroutines
+        if (_statusMessageCoroutine != null)
+            StopCoroutine(_statusMessageCoroutine);
     }
 }

@@ -115,45 +115,40 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         UnityEngine.Debug.Log("========================");
     }
 
+    // Replace your existing StartHostGame method in NetworkRunnerHandler.cs
+
     public async Task StartHostGame(string sessionName)
     {
         try
         {
             _runner.ProvideInput = true;
 
-            // Generate unique session identification
-            SessionDisplayName = sessionName;
-            SessionUniqueID = $"{sessionName}_{System.Guid.NewGuid().ToString().Substring(0, 8)}";
-            SessionHash = ComputeSessionHash(SessionUniqueID);
-            SessionStartTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            // Set up session codes using our new system
+            SetupSessionCode(sessionName);
 
-            UnityEngine.Debug.Log($"Starting game as Host with name: {SessionDisplayName} | ID: {SessionUniqueID} | Hash: {SessionHash}");
-
-            // Create session properties dictionary - using direct assignment
+            // Create session properties
             var sessionProps = new Dictionary<string, SessionProperty>();
-
-            // Add properties using direct assignment (implicit conversion handles it)
             sessionProps.Add("DisplayName", SessionDisplayName);
             sessionProps.Add("Hash", SessionHash);
-            sessionProps.Add("StartTime", (int)SessionStartTime); // Convert long to int
+            sessionProps.Add("StartTime", (int)SessionStartTime);
 
             // Start the game in host mode
             var startGameArgs = new StartGameArgs()
             {
                 GameMode = GameMode.Host,
-                SessionName = SessionUniqueID, // Use unique ID for actual session name
+                SessionName = SessionUniqueID, // Use internal ID for actual session name
                 SceneManager = _sceneManager,
-                SessionProperties = sessionProps, // Add the properties
+                SessionProperties = sessionProps,
                 PlayerCount = _maxPlayers,
-                IsVisible = true,  // Make session visible to others
-                IsOpen = true      // Allow others to join
+                IsVisible = true,
+                IsOpen = true
             };
 
             var result = await _runner.StartGame(startGameArgs);
 
             if (result.Ok)
             {
-                UnityEngine.Debug.Log($"Host game started successfully");
+                Debug.Log($"Host game started successfully");
 
                 // Save session info for reconnection
                 PlayerPrefs.SetString("LastSessionID", SessionUniqueID);
@@ -165,55 +160,35 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             }
             else
             {
-                UnityEngine.Debug.LogError($"Failed to start host game: {result.ShutdownReason}");
+                Debug.LogError($"Failed to start host game: {result.ShutdownReason}");
             }
         }
         catch (Exception ex)
         {
-            UnityEngine.Debug.LogError($"Error starting host game: {ex.Message}\n{ex.StackTrace}");
+            Debug.LogError($"Error starting host game: {ex.Message}\n{ex.StackTrace}");
         }
     }
 
     // New method to join directly by hash
-    public async Task StartClientGameByHash(string hash)
+    // Update your StartClientGameByHash method in NetworkRunnerHandler.cs
+
+    public async Task StartClientGameByHash(string roomCode)
     {
         try
         {
-            // Force a session list update first
-            Debug.Log($"Attempting to join room with hash: {hash}");
+            Debug.Log($"Attempting to join room with code: {roomCode}");
 
-            if (string.IsNullOrEmpty(hash))
+            if (string.IsNullOrEmpty(roomCode))
             {
-                Debug.LogError("Hash is empty or null");
+                Debug.LogError("Room code is empty or null");
                 return;
             }
 
             // Ensure we have an updated session list
-            if (_runner == null || !_runner.IsRunning)
-            {
-                // Force a start for session listing
-                var tempArgs = new StartGameArgs()
-                {
-                    GameMode = GameMode.AutoHostOrClient,
-                    SceneManager = _sceneManager
-                };
-
-                var result = await _runner.StartGame(tempArgs);
-                if (!result.Ok)
-                {
-                    Debug.LogError($"Failed to start temporary session for discovery: {result.ShutdownReason}");
-                    return;
-                }
-
-                // Give some time for session list to populate
-                await Task.Delay(1000);
-            }
+            await RefreshSessionList();
 
             // Find the session with matching hash
             SessionInfo targetSession = null;
-
-            // Log all available sessions for debugging
-            Debug.Log($"Looking through {_availableSessions.Count} available sessions:");
 
             foreach (var session in _availableSessions)
             {
@@ -222,18 +197,13 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
                 if (hasHashProperty)
                 {
                     string sessionHash = hashProperty.PropertyValue.ToString();
-                    Debug.Log($"Comparing session hash: {sessionHash} with input: {hash}");
 
-                    if (sessionHash.Equals(hash, StringComparison.OrdinalIgnoreCase))
+                    if (sessionHash.Equals(roomCode, StringComparison.OrdinalIgnoreCase))
                     {
                         targetSession = session;
                         Debug.Log($"Found matching session: {session.Name}");
                         break;
                     }
-                }
-                else
-                {
-                    Debug.Log($"Session {session.Name} has no Hash property");
                 }
             }
 
@@ -243,28 +213,38 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             }
             else
             {
-                Debug.LogError($"No session found with hash: {hash}");
-
-                // List all available sessions for debug
-                Debug.Log("Available sessions:");
-                foreach (var session in _availableSessions)
-                {
-                    string displayName = session.Name;
-                    string sessionHash = "N/A";
-
-                    if (session.Properties.TryGetValue("DisplayName", out var nameObj))
-                        displayName = nameObj.PropertyValue.ToString();
-
-                    if (session.Properties.TryGetValue("Hash", out var hashObj))
-                        sessionHash = hashObj.PropertyValue.ToString();
-
-                    Debug.Log($"- {displayName} | Hash: {sessionHash} | Players: {session.PlayerCount}/{session.MaxPlayers}");
-                }
+                Debug.LogError($"No session found with code: {roomCode}");
+                // Show error to user - implement UI feedback here
             }
         }
         catch (Exception ex)
         {
-            Debug.LogError($"Error joining game by hash: {ex.Message}\n{ex.StackTrace}");
+            Debug.LogError($"Error joining game by room code: {ex.Message}\n{ex.StackTrace}");
+        }
+    }
+
+    // Add this helper method to NetworkRunnerHandler.cs
+
+    private async Task RefreshSessionList()
+    {
+        // If we need to start a runner to get the session list
+        if (_runner == null || !_runner.IsRunning)
+        {
+            var tempArgs = new StartGameArgs()
+            {
+                GameMode = GameMode.AutoHostOrClient,
+                SceneManager = _sceneManager
+            };
+
+            var result = await _runner.StartGame(tempArgs);
+            if (!result.Ok)
+            {
+                Debug.LogError($"Failed to start temporary session for discovery: {result.ShutdownReason}");
+                return;
+            }
+
+            // Give some time for session list to populate
+            await Task.Delay(1000);
         }
     }
 
@@ -323,6 +303,26 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             _isJoining = false;
             Debug.LogError($"Error joining game: {ex.Message}\n{ex.StackTrace}");
         }
+    }
+
+    // Add these methods to your NetworkRunnerHandler.cs
+
+    // Method to generate and set session codes
+    private void SetupSessionCode(string sessionNameBase)
+    {
+        // Generate a memorable room code
+        SessionHash = SessionCodeManager.Instance.GenerateNewSessionCode();
+
+        // Get the internal unique ID
+        SessionUniqueID = SessionCodeManager.Instance.GetInternalId(SessionHash);
+
+        // Use provided display name or default
+        SessionDisplayName = string.IsNullOrEmpty(sessionNameBase) ?
+            "Game Session" : sessionNameBase;
+
+        SessionStartTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        Debug.Log($"Session initialized: {SessionDisplayName} | ID: {SessionUniqueID} | Code: {SessionHash}");
     }
 
     // Original join method (keeping for backward compatibility)
@@ -605,9 +605,20 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     // Required INetworkRunnerCallbacks methods
     public void OnInput(NetworkRunner runner, NetworkInput input) { }
     public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) { }
+    // Update your OnShutdown method in NetworkRunnerHandler.cs
+
     public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason)
     {
-        UnityEngine.Debug.Log($"Network shutdown: {shutdownReason}");
+        Debug.Log($"Network shutdown: {shutdownReason}");
+
+        // End the session to start the cooldown timer
+        if (!string.IsNullOrEmpty(SessionHash))
+        {
+            if (SessionCodeManager.Instance != null)
+            {
+                SessionCodeManager.Instance.EndSession(SessionHash);
+            }
+        }
 
         // Clear player dictionary
         _spawnedCharacters.Clear();
