@@ -2,6 +2,8 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.Linq;
 
 public class MainMenuUI : MonoBehaviour
 {
@@ -37,6 +39,25 @@ public class MainMenuUI : MonoBehaviour
     [SerializeField] private Button _joinGameNavButton;
     [SerializeField] private Button _settingsNavButton;
 
+    [Header("Region Selection")]
+    [SerializeField] private TMP_Dropdown _regionDropdown;
+    [SerializeField] private bool _useAllRegions = true;
+    [SerializeField] private Button _debugButton;
+
+    // Dictionary of region names to codes
+    private Dictionary<string, string> _regionCodes = new Dictionary<string, string>()
+    {
+        { "Auto (Best)", "best" },
+        { "Europe", "eu" },
+        { "US East", "us" },
+        { "US West", "usw" },
+        { "Asia", "asia" },
+        { "Japan", "jp" },
+        { "Australia", "au" },
+        { "South America", "sa" },
+        { "South Africa", "za" }
+    };
+
     private NetworkRunnerHandler _networkRunnerHandler;
 
     private void Start()
@@ -54,6 +75,9 @@ public class MainMenuUI : MonoBehaviour
         {
             Debug.Log("NetworkRunnerHandler found successfully");
         }
+
+        // Initialize region dropdown
+        InitializeRegionDropdown();
 
         // Set default session name
         if (_sessionNameInput != null && string.IsNullOrEmpty(_sessionNameInput.text))
@@ -117,6 +141,14 @@ public class MainMenuUI : MonoBehaviour
             Debug.Log("Direct Join button setup complete");
         }
 
+        // Set up debug button
+        if (_debugButton != null)
+        {
+            _debugButton.onClick.RemoveAllListeners();
+            _debugButton.onClick.AddListener(DebugRoomDiscovery);
+            Debug.Log("Debug button setup complete");
+        }
+
         // Host Panel-specific buttons
         if (_hostPanel != null)
         {
@@ -136,6 +168,25 @@ public class MainMenuUI : MonoBehaviour
         SetupBackButtons();
 
         Debug.Log("MainMenuUI initialization complete");
+    }
+
+    private void InitializeRegionDropdown()
+    {
+        if (_regionDropdown != null)
+        {
+            _regionDropdown.ClearOptions();
+            List<TMP_Dropdown.OptionData> options = new List<TMP_Dropdown.OptionData>();
+
+            foreach (var region in _regionCodes.Keys)
+            {
+                options.Add(new TMP_Dropdown.OptionData(region));
+            }
+
+            _regionDropdown.AddOptions(options);
+            _regionDropdown.value = 0; // Default to "Auto (Best)"
+
+            Debug.Log("Region dropdown initialized with " + options.Count + " regions");
+        }
     }
 
     // Add this method to your MainMenuUI.cs
@@ -205,10 +256,17 @@ public class MainMenuUI : MonoBehaviour
             sessionName = _sessionNameInput.text;
         }
 
-        // Start host using the updated method
+        // Get selected region
+        string selectedRegion = "best";
+        if (_regionDropdown != null && _regionDropdown.value >= 0)
+        {
+            selectedRegion = _regionCodes.ElementAt(_regionDropdown.value).Value;
+        }
+
+        // Start host using the updated method with region
         if (_networkRunnerHandler != null)
         {
-            await _networkRunnerHandler.StartHostGame(sessionName);
+            await _networkRunnerHandler.StartHostGame(sessionName, selectedRegion, _useAllRegions);
         }
         else
         {
@@ -320,5 +378,36 @@ public class MainMenuUI : MonoBehaviour
     {
         Debug.Log($"Back button clicked from {fromPanel}");
         ShowPanel(_mainPanel);  // Return to main panel
+    }
+
+    // Debug function for room discovery
+    public void DebugRoomDiscovery()
+    {
+        if (_networkRunnerHandler == null)
+        {
+            Debug.LogError("Cannot debug - NetworkRunnerHandler is null");
+            return;
+        }
+
+        Debug.Log("Triggering room discovery debug");
+        _networkRunnerHandler.DebugRoomDiscovery();
+
+        // Show feedback to user
+        if (_statusText != null)
+        {
+            string currentPanel = _mainPanel.activeSelf ? "main menu" : "current panel";
+            _statusText.text = "Debug info printed to console.\nCheck logs for details.";
+            _statusText.gameObject.SetActive(true);
+            StartCoroutine(HideStatusAfterDelay(3f));
+        }
+    }
+
+    private System.Collections.IEnumerator HideStatusAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        if (_statusText != null)
+        {
+            _statusText.gameObject.SetActive(false);
+        }
     }
 }

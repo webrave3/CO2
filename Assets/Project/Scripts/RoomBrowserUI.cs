@@ -25,6 +25,11 @@ public class RoomBrowserUI : MonoBehaviour
     [Header("Settings")]
     [SerializeField] private bool _showPlaceholderWhenEmpty = true;
 
+    [Header("Debug")]
+    [SerializeField] private Button _debugButton;
+    [SerializeField] private TextMeshProUGUI _debugStatusText;
+    [SerializeField] private bool _showDebugInfo = false;
+
     private NetworkRunnerHandler _networkRunnerHandler;
     private List<GameObject> _roomEntries = new List<GameObject>();
     private bool _isJoining = false;
@@ -47,6 +52,9 @@ public class RoomBrowserUI : MonoBehaviour
         if (_joiningIndicator != null)
             _joiningIndicator.SetActive(false);
 
+        if (_debugStatusText != null)
+            _debugStatusText.gameObject.SetActive(_showDebugInfo);
+
         // Set up button listeners
         if (_refreshButton != null)
             _refreshButton.onClick.AddListener(RefreshRoomList);
@@ -66,6 +74,12 @@ public class RoomBrowserUI : MonoBehaviour
 
         if (_directJoinButton != null)
             _directJoinButton.onClick.AddListener(OnDirectJoinClicked);
+
+        // Set up debug button if present
+        if (_debugButton != null)
+        {
+            _debugButton.onClick.AddListener(DebugRoomDiscovery);
+        }
     }
 
     // This is the method to call from MainMenuUI
@@ -165,7 +179,7 @@ public class RoomBrowserUI : MonoBehaviour
             _directJoinButton.interactable = true;
     }
 
-    public void RefreshRoomList()
+    public async void RefreshRoomList()
     {
         if (_networkRunnerHandler == null)
         {
@@ -179,14 +193,85 @@ public class RoomBrowserUI : MonoBehaviour
             return;
         }
 
-        // Force refresh sessions from network
-        _networkRunnerHandler.ForceRefreshSessions();
+        // Force refresh sessions from network using our enhanced method
+        await _networkRunnerHandler.ForceActiveSessionRefresh();
 
         // Show a temporary refreshing message
         ShowStatusMessage("Refreshing room list...", Color.white, 1.5f);
 
         // Give network some time to update
         StartCoroutine(RefreshAfterDelay(0.5f));
+    }
+
+    // Debug method for room discovery
+    public void DebugRoomDiscovery()
+    {
+        if (_networkRunnerHandler == null)
+        {
+            ShowStatusMessage("Network system not initialized", Color.red);
+            return;
+        }
+
+        Debug.Log("Triggering room discovery debug from browser");
+        _networkRunnerHandler.DebugRoomDiscovery();
+
+        // Attempt repair as well
+        StartCoroutine(RepairRoomDiscovery());
+
+        // Show debug status
+        if (_debugStatusText != null)
+        {
+            _debugStatusText.text = "Debug info printed to console.\nAttempting repair...";
+            _debugStatusText.gameObject.SetActive(true);
+        }
+    }
+
+    private IEnumerator RepairRoomDiscovery()
+    {
+        if (_networkRunnerHandler == null)
+            yield break;
+
+        yield return new WaitForSeconds(1.0f);
+
+        // Update debug text
+        if (_debugStatusText != null)
+        {
+            _debugStatusText.text = "Refreshing rooms...";
+        }
+
+        // Refresh after delay
+        yield return new WaitForSeconds(2.0f);
+
+        // Try refresh but don't yield inside try/catch
+        try
+        {
+            RefreshRoomList();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"Error during room refresh: {ex.Message}");
+            if (_debugStatusText != null)
+            {
+                _debugStatusText.text = $"Refresh failed: {ex.Message}";
+            }
+            yield break; // Exit if error occurs
+        }
+
+        // Final update - done outside try/catch
+        yield return new WaitForSeconds(1.0f);
+
+        if (_debugStatusText != null)
+        {
+            _debugStatusText.text = "Room refresh complete.\nCheck logs for details.";
+        }
+
+        // Auto-hide after delay
+        yield return new WaitForSeconds(3.0f);
+
+        if (_debugStatusText != null)
+        {
+            _debugStatusText.gameObject.SetActive(_showDebugInfo);
+        }
     }
 
     private IEnumerator RefreshAfterDelay(float delay)
@@ -229,6 +314,7 @@ public class RoomBrowserUI : MonoBehaviour
                 {
                     string sessionHash = "Unknown";
                     string displayName = session.Name;
+                    string regionText = "Unknown";
 
                     // Try to get hash and display name from properties
                     if (session.Properties.TryGetValue("Hash", out var hashObj))
@@ -237,7 +323,10 @@ public class RoomBrowserUI : MonoBehaviour
                     if (session.Properties.TryGetValue("DisplayName", out var nameObj))
                         displayName = nameObj.PropertyValue.ToString();
 
-                    roomNameText.text = $"{displayName}\nPlayers: {session.PlayerCount}/{session.MaxPlayers}\nCode: {sessionHash}";
+                    if (session.Properties.TryGetValue("Region", out var regionObj))
+                        regionText = regionObj.PropertyValue.ToString();
+
+                    roomNameText.text = $"{displayName}\nPlayers: {session.PlayerCount}/{session.MaxPlayers}\nRegion: {regionText}\nCode: {sessionHash}";
                 }
 
                 // Configure join button
@@ -316,7 +405,7 @@ public class RoomBrowserUI : MonoBehaviour
         TextMeshProUGUI roomNameText = entryGO.GetComponentInChildren<TextMeshProUGUI>();
         if (roomNameText != null)
         {
-            roomNameText.text = $"{name} {suffix}\nPlayers: {players}\nCode: {code}";
+            roomNameText.text = $"{name} {suffix}\nPlayers: {players}\nRegion: Example\nCode: {code}";
         }
 
         // Configure join button - display but disable since this is a placeholder

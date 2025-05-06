@@ -114,8 +114,6 @@ public class PlayerController : NetworkBehaviour
         // Apply pitch to camera with proper clamping
         float pitch = Mathf.Clamp(lookRotation.x, _cameraMinY, _cameraMaxY);
         _camera.transform.localRotation = Quaternion.Euler(pitch, 0f, 0f);
-
-        Debug.Log($"Camera Rotation - Pitch: {pitch:F1}, Local: {_camera.transform.localRotation.eulerAngles}");
     }
 
     // Handle cursor management

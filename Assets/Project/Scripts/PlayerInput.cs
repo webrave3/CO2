@@ -61,16 +61,6 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
         // Store raw delta for this frame
         _lookInput = new Vector2(mouseX, mouseY);
 
-        // Debug output for mouse movement - throttled to avoid spam
-        if (_debugInput && (Mathf.Abs(mouseX) > 0.01f || Mathf.Abs(mouseY) > 0.01f))
-        {
-            if (Time.time - _lastLogTime >= _debugLogInterval)
-            {
-                Debug.Log($"RAW MOUSE: X={mouseX:F3}, Y={mouseY:F3}, CursorVisible: {Cursor.visible}, LockState: {Cursor.lockState}");
-                _lastLogTime = Time.time;
-            }
-        }
-
         _jumpInput = Input.GetKey(KeyCode.Space);
     }
 

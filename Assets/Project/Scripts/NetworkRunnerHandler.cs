@@ -6,6 +6,7 @@ using System;
 using System.Threading.Tasks;
 using UnityEngine.SceneManagement;
 using System.Collections;
+using System.Linq;
 
 public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
 {
@@ -19,6 +20,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
 
     [Header("Network Settings")]
     [SerializeField] private int _maxPlayers = 6;
+    [SerializeField] private bool _enableDiscovery = true;
 
     // Session information
     public string SessionDisplayName { get; private set; }
@@ -49,7 +51,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         _runner = GetComponent<NetworkRunner>();
         if (_runner == null)
         {
-            UnityEngine.Debug.LogError("NetworkRunner component not found. Please add it in the Inspector.");
+            Debug.LogError("NetworkRunner component not found. Please add it in the Inspector.");
             _runner = gameObject.AddComponent<NetworkRunner>();
         }
 
@@ -73,26 +75,26 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (_runner == null)
         {
-            UnityEngine.Debug.LogError("SESSIONS DEBUG: NetworkRunner is null");
+            Debug.LogError("SESSIONS DEBUG: NetworkRunner is null");
             return;
         }
 
-        UnityEngine.Debug.Log("==== SESSIONS DEBUG ====");
-        UnityEngine.Debug.Log($"Runner State: {_runner.IsRunning}, GameMode: {_runner.GameMode}");
+        Debug.Log("==== SESSIONS DEBUG ====");
+        Debug.Log($"Runner State: {_runner.IsRunning}, GameMode: {_runner.GameMode}");
 
         if (_runner.SessionInfo != null)
         {
-            UnityEngine.Debug.Log($"Current Session: {_runner.SessionInfo.Name}, Players: {_runner.SessionInfo.PlayerCount}/{_runner.SessionInfo.MaxPlayers}");
+            Debug.Log($"Current Session: {_runner.SessionInfo.Name}, Players: {_runner.SessionInfo.PlayerCount}/{_runner.SessionInfo.MaxPlayers}");
         }
         else
         {
-            UnityEngine.Debug.Log("Not connected to any session");
+            Debug.Log("Not connected to any session");
         }
 
         // List all available sessions from our cached list
         if (_availableSessions != null && _availableSessions.Count > 0)
         {
-            UnityEngine.Debug.Log($"Available Sessions ({_availableSessions.Count}):");
+            Debug.Log($"Available Sessions ({_availableSessions.Count}):");
             foreach (var session in _availableSessions)
             {
                 string displayName = session.Name;
@@ -104,33 +106,34 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
                 if (session.Properties.TryGetValue("Hash", out var hashObj))
                     hash = hashObj.PropertyValue.ToString();
 
-                UnityEngine.Debug.Log($"- {displayName} | Hash: {hash} | Players: {session.PlayerCount}/{session.MaxPlayers} | Region: {session.Region}");
+                Debug.Log($"- {displayName} | Hash: {hash} | Players: {session.PlayerCount}/{session.MaxPlayers} | Region: {session.Region}");
             }
         }
         else
         {
-            UnityEngine.Debug.Log("No sessions available in session list");
+            Debug.Log("No sessions available in session list");
         }
 
-        UnityEngine.Debug.Log("========================");
+        Debug.Log("========================");
     }
 
-    // Replace your existing StartHostGame method in NetworkRunnerHandler.cs
-
-    public async Task StartHostGame(string sessionName)
+    public async Task StartHostGame(string sessionName, string region = "auto", bool allowAllRegions = true)
     {
         try
         {
             _runner.ProvideInput = true;
 
-            // Set up session codes using our new system
+            // Set up session codes using our system
             SetupSessionCode(sessionName);
 
             // Create session properties
-            var sessionProps = new Dictionary<string, SessionProperty>();
+            Dictionary<string, SessionProperty> sessionProps = new Dictionary<string, SessionProperty>();
             sessionProps.Add("DisplayName", SessionDisplayName);
             sessionProps.Add("Hash", SessionHash);
             sessionProps.Add("StartTime", (int)SessionStartTime);
+
+            // In Fusion 2.0.5, we can't set the region in StartGameArgs
+            // Configure region via Photon AppSettings if needed
 
             // Start the game in host mode
             var startGameArgs = new StartGameArgs()
@@ -170,8 +173,6 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     }
 
     // New method to join directly by hash
-    // Update your StartClientGameByHash method in NetworkRunnerHandler.cs
-
     public async Task StartClientGameByHash(string roomCode)
     {
         try
@@ -223,10 +224,10 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
-    // Add this helper method to NetworkRunnerHandler.cs
-
     private async Task RefreshSessionList()
     {
+        Debug.Log("Refreshing session list...");
+
         // If we need to start a runner to get the session list
         if (_runner == null || !_runner.IsRunning)
         {
@@ -236,15 +237,75 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
                 SceneManager = _sceneManager
             };
 
-            var result = await _runner.StartGame(tempArgs);
-            if (!result.Ok)
+            try
             {
-                Debug.LogError($"Failed to start temporary session for discovery: {result.ShutdownReason}");
+                var result = await _runner.StartGame(tempArgs);
+                if (!result.Ok)
+                {
+                    Debug.LogError($"Failed to start temporary session for discovery: {result.ShutdownReason}");
+                    return;
+                }
+                Debug.Log("Started temporary session for discovery");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Error starting temp session: {ex.Message}");
                 return;
             }
+        }
 
-            // Give some time for session list to populate
-            await Task.Delay(1000);
+        // In Fusion 2.0.5, we can't directly control session discovery
+        // Session list updates will be received via OnSessionListUpdated callback
+
+        // Give network time to respond
+        Debug.Log("Waiting for session list to update...");
+        await Task.Delay(1500); // Longer delay to receive updates
+    }
+
+    public async Task ForceActiveSessionRefresh()
+    {
+        Debug.Log("Actively refreshing session list...");
+
+        // First, handle the case where runner isn't started
+        if (_runner == null || !_runner.IsRunning)
+        {
+            var tempArgs = new StartGameArgs()
+            {
+                GameMode = GameMode.AutoHostOrClient,
+                SceneManager = _sceneManager
+            };
+
+            try
+            {
+                await _runner.StartGame(tempArgs);
+                Debug.Log("Started temporary session for discovery");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Error starting temp session: {ex.Message}");
+                return;
+            }
+        }
+
+        // In Fusion 2.0.5, we have to rely on the automatic session list updates
+
+        // Give network time to respond
+        Debug.Log("Waiting for session list to update...");
+        await Task.Delay(1500); // Longer delay to receive updates
+
+        // Log current sessions
+        Debug.Log($"Found {_availableSessions.Count} sessions after refresh");
+        foreach (var session in _availableSessions)
+        {
+            string displayName = "Unknown";
+            string hash = "Unknown";
+
+            if (session.Properties.TryGetValue("DisplayName", out var nameObj))
+                displayName = nameObj.PropertyValue.ToString();
+            if (session.Properties.TryGetValue("Hash", out var hashObj))
+                hash = hashObj.PropertyValue.ToString();
+
+            Debug.Log($"Session: {displayName} | Hash: {hash} | Players: {session.PlayerCount}/{session.MaxPlayers}");
         }
     }
 
@@ -305,8 +366,6 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
-    // Add these methods to your NetworkRunnerHandler.cs
-
     // Method to generate and set session codes
     private void SetupSessionCode(string sessionNameBase)
     {
@@ -333,7 +392,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             _runner.ProvideInput = true;
             _isJoining = true;
 
-            UnityEngine.Debug.Log($"Looking for session containing name: {sessionName}");
+            Debug.Log($"Looking for session containing name: {sessionName}");
 
             // Store the session name for display purposes
             SessionDisplayName = sessionName;
@@ -365,7 +424,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             }
 
             // If we couldn't find it in the cache, try direct connection with the name
-            UnityEngine.Debug.LogWarning($"No session found with name '{sessionName}', attempting direct connection");
+            Debug.LogWarning($"No session found with name '{sessionName}', attempting direct connection");
 
             var startGameArgs = new StartGameArgs()
             {
@@ -378,7 +437,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
 
             if (result.Ok)
             {
-                UnityEngine.Debug.Log($"Client game started successfully via direct connection");
+                Debug.Log($"Client game started successfully via direct connection");
 
                 // The session ID is the actual session name used internally
                 if (_runner.SessionInfo != null)
@@ -388,16 +447,16 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
                     // For the client, we'll generate a hash based on the session name
                     SessionHash = ComputeSessionHash(SessionUniqueID);
 
-                    UnityEngine.Debug.Log($"Connected to session: {SessionDisplayName} | ID: {SessionUniqueID} | Hash: {SessionHash}");
+                    Debug.Log($"Connected to session: {SessionDisplayName} | ID: {SessionUniqueID} | Hash: {SessionHash}");
                 }
                 else
                 {
-                    UnityEngine.Debug.LogError("Connected but SessionInfo is null!");
+                    Debug.LogError("Connected but SessionInfo is null!");
                 }
             }
             else
             {
-                UnityEngine.Debug.LogError($"Failed to join game: {result.ShutdownReason}");
+                Debug.LogError($"Failed to join game: {result.ShutdownReason}");
             }
 
             _isJoining = false;
@@ -405,7 +464,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         catch (Exception ex)
         {
             _isJoining = false;
-            UnityEngine.Debug.LogError($"Error joining game: {ex.Message}\n{ex.StackTrace}");
+            Debug.LogError($"Error joining game: {ex.Message}\n{ex.StackTrace}");
         }
     }
 
@@ -427,7 +486,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (_runner != null && _runner.IsRunning)
         {
-            UnityEngine.Debug.Log($"Loading scene: {sceneName}");
+            Debug.Log($"Loading scene: {sceneName}");
 
             // Use the runner's LoadScene method directly
             await _runner.LoadScene(sceneName);
@@ -438,7 +497,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (_runner != null && _runner.IsRunning)
         {
-            UnityEngine.Debug.Log("Shutting down network session");
+            Debug.Log("Shutting down network session");
             await _runner.Shutdown();
         }
     }
@@ -454,20 +513,46 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
-        // Nothing to do since OnSessionListUpdated will be called automatically
-        Debug.Log("Runner active, waiting for session list updates");
+        // In Fusion 2.0.5, we have to rely on the automatic session list updates
+        // Start async refresh
+        _ = ForceActiveSessionRefresh();
+    }
+
+    // Debug function to analyze session discovery
+    public void DebugRoomDiscovery()
+    {
+        Debug.Log("===== ROOM DISCOVERY DEBUG =====");
+
+        if (_runner != null && _runner.IsRunning)
+        {
+            Debug.Log($"Runner active: {_runner.IsRunning}");
+
+            if (_runner.IsServer)
+            {
+                Debug.Log($"Hosting room: {SessionDisplayName}");
+                Debug.Log($"Room hash: {SessionHash}");
+                Debug.Log($"Session advertised: {_runner.SessionInfo?.IsVisible}");
+            }
+
+            // Force refresh
+            ForceRefreshSessions();
+        }
+        else
+        {
+            Debug.Log("Runner not initialized");
+        }
     }
 
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
     {
-        UnityEngine.Debug.Log($"Player {player} joined");
+        Debug.Log($"Player {player} joined");
 
         if (SceneManager.GetActiveScene().name == _lobbySceneName ||
             SceneManager.GetActiveScene().name == _gameSceneName)
         {
             if (runner.IsServer)
             {
-                UnityEngine.Debug.Log($"Spawning player: {player}");
+                Debug.Log($"Spawning player: {player}");
 
                 // Get spawn point
                 Transform spawnPoint = GetSpawnPoint();
@@ -497,7 +582,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
                 }
                 catch (Exception ex)
                 {
-                    UnityEngine.Debug.LogError($"Exception when spawning player: {ex.Message}");
+                    Debug.LogError($"Exception when spawning player: {ex.Message}");
                 }
 
                 // Spawn GameStateManager if first player
@@ -529,20 +614,20 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         {
             runner.Despawn(networkObject);
             _spawnedCharacters.Remove(player);
-            UnityEngine.Debug.Log($"Player {player} despawned and removed from dictionary");
+            Debug.Log($"Player {player} despawned and removed from dictionary");
         }
     }
 
     // This callback receives session list updates
     public void OnSessionListUpdated(NetworkRunner runner, List<SessionInfo> sessionList)
     {
-        UnityEngine.Debug.Log($"Session list updated: {sessionList.Count} sessions available");
+        Debug.Log($"Session list updated: {sessionList.Count} sessions available");
         _availableSessions = sessionList;
 
         // If we're in joining mode, log all available sessions to help with debugging
         if (_isJoining)
         {
-            UnityEngine.Debug.Log("Available sessions while joining:");
+            Debug.Log("Available sessions while joining:");
             foreach (var session in sessionList)
             {
                 string displayName = session.Name;
@@ -554,58 +639,10 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
                 if (session.Properties.TryGetValue("Hash", out var hashObj))
                     hash = hashObj.PropertyValue.ToString();
 
-                UnityEngine.Debug.Log($"- {displayName} | Hash: {hash} | Players: {session.PlayerCount}/{session.MaxPlayers}");
+                Debug.Log($"- {displayName} | Hash: {hash} | Players: {session.PlayerCount}/{session.MaxPlayers}");
             }
         }
     }
-
-    // Debug function to analyze session discovery
-    public void DebugSessionDiscovery()
-    {
-        Debug.Log("===== SESSION DISCOVERY DEBUG =====");
-
-        // Log current runner state
-        Debug.Log($"Runner State: {(_runner != null ? _runner.IsRunning.ToString() : "Runner null")}");
-        Debug.Log($"Game Mode: {(_runner != null ? _runner.GameMode.ToString() : "N/A")}");
-
-        // Log available sessions
-        Debug.Log($"Available Sessions Count: {_availableSessions.Count}");
-
-        foreach (var session in _availableSessions)
-        {
-            Debug.Log($"Session: {session.Name}");
-            Debug.Log($"  Region: {session.Region}");
-            Debug.Log($"  Players: {session.PlayerCount}/{session.MaxPlayers}");
-
-            foreach (var prop in session.Properties)
-            {
-                Debug.Log($"  Property: {prop.Key} = {prop.Value.PropertyValue}");
-            }
-        }
-
-        // Log current session details if hosting
-        if (_runner != null && _runner.IsRunning && _runner.IsServer)
-        {
-            Debug.Log("HOSTING SESSION DETAILS:");
-            Debug.Log($"  Display Name: {SessionDisplayName}");
-            Debug.Log($"  Unique ID: {SessionUniqueID}");
-            Debug.Log($"  Hash: {SessionHash}");
-
-            if (_runner.SessionInfo != null)
-            {
-                Debug.Log($"  Actual Session Name: {_runner.SessionInfo.Name}");
-                Debug.Log($"  Is Visible: {_runner.SessionInfo.IsVisible}");
-                Debug.Log($"  Is Open: {_runner.SessionInfo.IsOpen}");
-            }
-        }
-
-        Debug.Log("===================================");
-    }
-
-    // Required INetworkRunnerCallbacks methods
-    public void OnInput(NetworkRunner runner, NetworkInput input) { }
-    public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) { }
-    // Update your OnShutdown method in NetworkRunnerHandler.cs
 
     public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason)
     {
@@ -629,21 +666,25 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             SceneManager.LoadScene("MainMenu");
         }
     }
-    public void OnConnectedToServer(NetworkRunner runner) { UnityEngine.Debug.Log("Connected to server"); }
+
+    // Required INetworkRunnerCallbacks methods
+    public void OnInput(NetworkRunner runner, NetworkInput input) { }
+    public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) { }
+    public void OnConnectedToServer(NetworkRunner runner) { Debug.Log("Connected to server"); }
     public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason)
     {
-        UnityEngine.Debug.Log($"Disconnected from server: {reason}");
+        Debug.Log($"Disconnected from server: {reason}");
     }
     public void OnConnectRequest(NetworkRunner runner, NetworkRunnerCallbackArgs.ConnectRequest request, byte[] token) { }
     public void OnConnectFailed(NetworkRunner runner, NetAddress remoteAddress, NetConnectFailedReason reason)
     {
-        UnityEngine.Debug.LogError($"Connection failed: {reason}");
+        Debug.LogError($"Connection failed: {reason}");
     }
     public void OnUserSimulationMessage(NetworkRunner runner, SimulationMessagePtr message) { }
     public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) { }
     public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken) { }
     public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, ArraySegment<byte> data) { }
-    public void OnSceneLoadDone(NetworkRunner runner) { UnityEngine.Debug.Log("Scene load completed"); }
+    public void OnSceneLoadDone(NetworkRunner runner) { Debug.Log("Scene load completed"); }
     public void OnSceneLoadStart(NetworkRunner runner) { }
     public void OnObjectEnterAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
     public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
