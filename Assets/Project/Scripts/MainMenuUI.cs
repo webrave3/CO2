@@ -60,7 +60,7 @@ public class MainMenuUI : MonoBehaviour
 
     private NetworkRunnerHandler _networkRunnerHandler;
 
-    private void Start()
+    void Start()
     {
         Debug.Log("MainMenuUI Start method executing");
 
@@ -168,6 +168,25 @@ public class MainMenuUI : MonoBehaviour
         SetupBackButtons();
 
         Debug.Log("MainMenuUI initialization complete");
+
+        // Check for auto-actions from in-game menu
+        if (PlayerPrefs.HasKey("AutoHost"))
+        {
+            Debug.Log("Auto-Host flag detected, showing host panel");
+            PlayerPrefs.DeleteKey("AutoHost");
+            PlayerPrefs.Save();
+            ShowHostGamePanel();
+        }
+        else if (PlayerPrefs.HasKey("AutoJoin"))
+        {
+            Debug.Log("Auto-Join flag detected, showing join panel");
+            PlayerPrefs.DeleteKey("AutoJoin");
+            PlayerPrefs.Save();
+            if (_roomBrowserUI != null)
+                _roomBrowserUI.ShowRoomBrowser();
+            else
+                ShowPanel(_joinGamePanel);
+        }
     }
 
     private void InitializeRegionDropdown()
