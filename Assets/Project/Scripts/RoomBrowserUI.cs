@@ -3,6 +3,7 @@ using UnityEngine.UI;
 using TMPro;
 using System.Collections.Generic;
 using Fusion;
+using System.Collections;
 
 public class RoomBrowserUI : MonoBehaviour
 {
@@ -110,6 +111,18 @@ public class RoomBrowserUI : MonoBehaviour
             return;
         }
 
+        // First force refresh sessions from network
+        _networkRunnerHandler.ForceRefreshSessions();
+
+        // Give network some time to update - you might want to show a loading indicator here
+        StartCoroutine(RefreshAfterDelay(0.5f));
+    }
+
+    private IEnumerator RefreshAfterDelay(float delay)
+    {
+        // Wait for network to update
+        yield return new WaitForSeconds(delay);
+
         // Clear existing entries
         foreach (var entry in _roomEntries)
         {
@@ -120,79 +133,73 @@ public class RoomBrowserUI : MonoBehaviour
         // Get available sessions from the NetworkRunnerHandler
         List<SessionInfo> availableSessions = _networkRunnerHandler.GetAvailableSessions();
 
-        if (availableSessions.Count == 0)
+        Debug.Log($"Room browser found {availableSessions.Count} sessions");
+
+        // ALWAYS add placeholders for testing (modified based on request)
+        AddPlaceholderRooms();
+
+        // Then add real sessions if they exist
+        if (availableSessions.Count > 0)
         {
-            if (_showPlaceholderWhenEmpty)
+            // Create entries for each available session
+            foreach (var session in availableSessions)
             {
-                // Add a placeholder room for demo purposes
-                AddPlaceholderRoom();
-            }
-            else
-            {
-                // Create "No rooms available" text
-                GameObject noRoomsEntry = Instantiate(_roomEntryPrefab, _roomListContent);
-                TextMeshProUGUI roomNameText = noRoomsEntry.GetComponentInChildren<TextMeshProUGUI>();
+                GameObject entryGO = Instantiate(_roomEntryPrefab, _roomListContent);
+                _roomEntries.Add(entryGO);
+
+                // Set session information
+                TextMeshProUGUI roomNameText = entryGO.GetComponentInChildren<TextMeshProUGUI>();
                 if (roomNameText != null)
-                    roomNameText.text = "No rooms available";
+                {
+                    string sessionHash = "Unknown";
+                    string displayName = session.Name;
 
-                Button joinButton = noRoomsEntry.GetComponentInChildren<Button>();
+                    // Try to get hash and display name from properties
+                    if (session.Properties.TryGetValue("Hash", out var hashObj))
+                        sessionHash = hashObj.PropertyValue.ToString();
+
+                    if (session.Properties.TryGetValue("DisplayName", out var nameObj))
+                        displayName = nameObj.PropertyValue.ToString();
+
+                    roomNameText.text = $"{displayName}\nPlayers: {session.PlayerCount}/{session.MaxPlayers}\nCode: {sessionHash}";
+                }
+
+                // Configure join button
+                Button joinButton = entryGO.GetComponentInChildren<Button>();
                 if (joinButton != null)
-                    joinButton.gameObject.SetActive(false);
+                {
+                    // Store session in a local variable to avoid closure issues
+                    SessionInfo sessionToJoin = session;
+                    joinButton.onClick.AddListener(() => {
+                        Debug.Log($"Joining session: {sessionToJoin.Name}");
+                        if (_networkRunnerHandler != null)
+                        {
+                            _networkRunnerHandler.StartClientGameBySessionInfo(sessionToJoin);
+                        }
 
-                _roomEntries.Add(noRoomsEntry);
+                        if (_joinGamePanel != null)
+                        {
+                            _joinGamePanel.SetActive(false);
+                        }
+                    });
+                }
             }
-            return;
         }
-
-        // Create entries for each available session
-        foreach (var session in availableSessions)
+        else
         {
-            GameObject entryGO = Instantiate(_roomEntryPrefab, _roomListContent);
-            _roomEntries.Add(entryGO);
-
-            // Set session information
-            TextMeshProUGUI roomNameText = entryGO.GetComponentInChildren<TextMeshProUGUI>();
-            if (roomNameText != null)
-            {
-                string sessionHash = "Unknown";
-                string displayName = session.Name;
-
-                // Try to get hash and display name from properties
-                if (session.Properties.TryGetValue("Hash", out var hashObj))
-                    sessionHash = hashObj.PropertyValue.ToString();
-
-                if (session.Properties.TryGetValue("DisplayName", out var nameObj))
-                    displayName = nameObj.PropertyValue.ToString();
-
-                roomNameText.text = $"{displayName}\nPlayers: {session.PlayerCount}/{session.MaxPlayers}\nCode: {sessionHash}";
-            }
-
-            // Configure join button
-            Button joinButton = entryGO.GetComponentInChildren<Button>();
-            if (joinButton != null)
-            {
-                joinButton.onClick.AddListener(() => {
-                    if (_networkRunnerHandler != null)
-                    {
-                        _networkRunnerHandler.StartClientGameBySessionInfo(session);
-                    }
-
-                    if (_joinGamePanel != null)
-                    {
-                        _joinGamePanel.SetActive(false);
-                    }
-                });
-            }
+            Debug.Log("No real sessions found, showing only placeholders");
         }
     }
 
-    private void AddPlaceholderRoom()
+    // Modified to add 5 placeholder rooms
+    private void AddPlaceholderRooms()
     {
-        // Create placeholder entries
+        // Create 5 placeholder entries
         AddPlaceholderRoomEntry("Corporate Override", "3/6", "A1B2C3D4", "(Example Room)");
-
-        // You can add more if you want to see multiple entries
         AddPlaceholderRoomEntry("Research Lab", "2/6", "E5F6G7H8", "(Example Room)");
+        AddPlaceholderRoomEntry("Maintenance Level", "4/6", "I9J0K1L2", "(Example Room)");
+        AddPlaceholderRoomEntry("Security Division", "1/6", "M3N4O5P6", "(Example Room)");
+        AddPlaceholderRoomEntry("Core Access", "5/6", "Q7R8S9T0", "(Example Room)");
     }
 
     private void AddPlaceholderRoomEntry(string name, string players, string code, string suffix)

@@ -5,13 +5,20 @@ using Fusion.Sockets;
 using System;
 using System.Threading.Tasks;
 using UnityEngine.SceneManagement;
+using System.Collections;
 
 public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
 {
+    [Header("Network References")]
     [SerializeField] private NetworkPrefabRef _playerPrefab;
     [SerializeField] private NetworkPrefabRef _gameStateManagerPrefab;
+
+    [Header("Scene Settings")]
     [SerializeField] private string _lobbySceneName = "Lobby";
     [SerializeField] private string _gameSceneName = "Game";
+
+    [Header("Network Settings")]
+    [SerializeField] private int _maxPlayers = 6;
 
     // Session information
     public string SessionDisplayName { get; private set; }
@@ -136,7 +143,10 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
                 GameMode = GameMode.Host,
                 SessionName = SessionUniqueID, // Use unique ID for actual session name
                 SceneManager = _sceneManager,
-                SessionProperties = sessionProps // Add the properties
+                SessionProperties = sessionProps, // Add the properties
+                PlayerCount = _maxPlayers,
+                IsVisible = true,  // Make session visible to others
+                IsOpen = true      // Allow others to join
             };
 
             var result = await _runner.StartGame(startGameArgs);
@@ -169,17 +179,61 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     {
         try
         {
+            // Force a session list update first
+            Debug.Log($"Attempting to join room with hash: {hash}");
+
+            if (string.IsNullOrEmpty(hash))
+            {
+                Debug.LogError("Hash is empty or null");
+                return;
+            }
+
+            // Ensure we have an updated session list
+            if (_runner == null || !_runner.IsRunning)
+            {
+                // Force a start for session listing
+                var tempArgs = new StartGameArgs()
+                {
+                    GameMode = GameMode.AutoHostOrClient,
+                    SceneManager = _sceneManager
+                };
+
+                var result = await _runner.StartGame(tempArgs);
+                if (!result.Ok)
+                {
+                    Debug.LogError($"Failed to start temporary session for discovery: {result.ShutdownReason}");
+                    return;
+                }
+
+                // Give some time for session list to populate
+                await Task.Delay(1000);
+            }
+
             // Find the session with matching hash
             SessionInfo targetSession = null;
+
+            // Log all available sessions for debugging
+            Debug.Log($"Looking through {_availableSessions.Count} available sessions:");
+
             foreach (var session in _availableSessions)
             {
-                // We need to check if the property exists and then compare values
-                if (session.Properties.TryGetValue("Hash", out var sessionHash) &&
-                    sessionHash.PropertyValue.ToString() == hash)
+                bool hasHashProperty = session.Properties.TryGetValue("Hash", out var hashProperty);
+
+                if (hasHashProperty)
                 {
-                    targetSession = session;
-                    Debug.Log($"Found session with matching hash: {session.Name}");
-                    break;
+                    string sessionHash = hashProperty.PropertyValue.ToString();
+                    Debug.Log($"Comparing session hash: {sessionHash} with input: {hash}");
+
+                    if (sessionHash.Equals(hash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetSession = session;
+                        Debug.Log($"Found matching session: {session.Name}");
+                        break;
+                    }
+                }
+                else
+                {
+                    Debug.Log($"Session {session.Name} has no Hash property");
                 }
             }
 
@@ -190,6 +244,22 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             else
             {
                 Debug.LogError($"No session found with hash: {hash}");
+
+                // List all available sessions for debug
+                Debug.Log("Available sessions:");
+                foreach (var session in _availableSessions)
+                {
+                    string displayName = session.Name;
+                    string sessionHash = "N/A";
+
+                    if (session.Properties.TryGetValue("DisplayName", out var nameObj))
+                        displayName = nameObj.PropertyValue.ToString();
+
+                    if (session.Properties.TryGetValue("Hash", out var hashObj))
+                        sessionHash = hashObj.PropertyValue.ToString();
+
+                    Debug.Log($"- {displayName} | Hash: {sessionHash} | Players: {session.PlayerCount}/{session.MaxPlayers}");
+                }
             }
         }
         catch (Exception ex)
@@ -373,6 +443,21 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
+    // Add this method to force a manual refresh
+    public void ForceRefreshSessions()
+    {
+        Debug.Log("Force refreshing session list...");
+
+        if (_runner == null || !_runner.IsRunning)
+        {
+            Debug.LogError("Cannot refresh sessions - Runner not active");
+            return;
+        }
+
+        // Nothing to do since OnSessionListUpdated will be called automatically
+        Debug.Log("Runner active, waiting for session list updates");
+    }
+
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
     {
         UnityEngine.Debug.Log($"Player {player} joined");
@@ -472,6 +557,49 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
                 UnityEngine.Debug.Log($"- {displayName} | Hash: {hash} | Players: {session.PlayerCount}/{session.MaxPlayers}");
             }
         }
+    }
+
+    // Debug function to analyze session discovery
+    public void DebugSessionDiscovery()
+    {
+        Debug.Log("===== SESSION DISCOVERY DEBUG =====");
+
+        // Log current runner state
+        Debug.Log($"Runner State: {(_runner != null ? _runner.IsRunning.ToString() : "Runner null")}");
+        Debug.Log($"Game Mode: {(_runner != null ? _runner.GameMode.ToString() : "N/A")}");
+
+        // Log available sessions
+        Debug.Log($"Available Sessions Count: {_availableSessions.Count}");
+
+        foreach (var session in _availableSessions)
+        {
+            Debug.Log($"Session: {session.Name}");
+            Debug.Log($"  Region: {session.Region}");
+            Debug.Log($"  Players: {session.PlayerCount}/{session.MaxPlayers}");
+
+            foreach (var prop in session.Properties)
+            {
+                Debug.Log($"  Property: {prop.Key} = {prop.Value.PropertyValue}");
+            }
+        }
+
+        // Log current session details if hosting
+        if (_runner != null && _runner.IsRunning && _runner.IsServer)
+        {
+            Debug.Log("HOSTING SESSION DETAILS:");
+            Debug.Log($"  Display Name: {SessionDisplayName}");
+            Debug.Log($"  Unique ID: {SessionUniqueID}");
+            Debug.Log($"  Hash: {SessionHash}");
+
+            if (_runner.SessionInfo != null)
+            {
+                Debug.Log($"  Actual Session Name: {_runner.SessionInfo.Name}");
+                Debug.Log($"  Is Visible: {_runner.SessionInfo.IsVisible}");
+                Debug.Log($"  Is Open: {_runner.SessionInfo.IsOpen}");
+            }
+        }
+
+        Debug.Log("===================================");
     }
 
     // Required INetworkRunnerCallbacks methods

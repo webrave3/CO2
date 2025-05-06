@@ -152,8 +152,6 @@ GameObject:
   - component: {fileID: 739446958117319610}
   - component: {fileID: 2301474815692329637}
   - component: {fileID: -5131733369887749090}
-  - component: {fileID: 4731669615096465229}
-  - component: {fileID: 4957854575495535324}
   m_Layer: 0
   m_Name: Player
   m_TagString: Untagged
@@ -198,7 +196,6 @@ MonoBehaviour:
   - {fileID: 5745615109177488449}
   - {fileID: 739446958117319610}
   - {fileID: 2301474815692329637}
-  - {fileID: 4957854575495535324}
   ForceRemoteRenderTimeframe: 0
 --- !u!54 &7587903324999079842
 Rigidbody:
@@ -335,35 +332,6 @@ MonoBehaviour:
   m_DefaultActionMap: Player
   m_SplitScreenIndex: -1
   m_Camera: {fileID: 8025588294064833553}
---- !u!114 &4731669615096465229
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8084496490591366433}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: da1e10db52e74fd49b7d318159067497, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _debugText: {fileID: 0}
-  _offset: {x: 0, y: 2, z: 0}
---- !u!114 &4957854575495535324
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8084496490591366433}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 772dca96de4cb0a43b38edfe82af0a1e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _debugPanelPrefab: {fileID: 0}
-  _debugText: {fileID: 0}
-  _debugPanelPosition: {x: 10, y: 10}
 --- !u!1 &8413917386038852662
 GameObject:
   m_ObjectHideFlags: 0

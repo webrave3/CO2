@@ -12,7 +12,7 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
 
     [Header("Debug Options")]
     [SerializeField] private bool _debugInput = false;
-    [SerializeField] private float _debugLogInterval = 0.5f;
+    [SerializeField] private float _debugLogInterval = 3f;
 
     private Vector2 _moveInput;
     private Vector2 _lookInput;
