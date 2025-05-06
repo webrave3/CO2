@@ -120,7 +120,7 @@ public class MainMenuUI : MonoBehaviour
         // Host Panel-specific buttons
         if (_hostPanel != null)
         {
-            Button hostStartButton = _hostPanel.transform.Find("Host")?.GetComponent<Button>();
+            Button hostStartButton = _hostPanel.GetComponentInChildren<Button>();
             if (hostStartButton != null)
             {
                 hostStartButton.onClick.RemoveAllListeners();
@@ -136,6 +136,12 @@ public class MainMenuUI : MonoBehaviour
         SetupBackButtons();
 
         Debug.Log("MainMenuUI initialization complete");
+    }
+
+    // Add this method to your MainMenuUI.cs
+    public void ShowHostGamePanel()
+    {
+        ShowPanel(_hostPanel);
     }
 
     private void SetupButton(Button button, UnityEngine.Events.UnityAction action, string buttonName)
