@@ -2,7 +2,6 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Collections;
-using System.Diagnostics;
 
 public class InGameMenu : MonoBehaviour
 {
@@ -32,19 +31,30 @@ public class InGameMenu : MonoBehaviour
 
         if (_mainMenuButton != null)
             _mainMenuButton.onClick.AddListener(ReturnToMainMenu);
+
+        Debug.Log("InGameMenu initialized");
     }
 
     private void Update()
     {
-        // Toggle menu with Escape key
-        if (Input.GetKeyDown(KeyCode.Escape))
-        {
-            ToggleMenu();
-        }
+        // Remove Escape key handling from here completely
+        // GameMenuManager now handles this
     }
 
     public void ToggleMenu()
     {
+        Debug.Log("ToggleMenu called in InGameMenu");
+
+        // Check if GameMenuManager exists and let it handle the menu
+        if (GameMenuManager.Instance != null)
+        {
+            Debug.Log("Delegating to GameMenuManager.ToggleMenu");
+            GameMenuManager.Instance.ToggleMenu();
+            return;
+        }
+
+        // Fallback to original behavior if GameMenuManager doesn't exist
+        Debug.Log("No GameMenuManager found, using native toggle behavior");
         _isMenuVisible = !_isMenuVisible;
 
         if (_menuPanel != null)
@@ -59,6 +69,18 @@ public class InGameMenu : MonoBehaviour
 
     public void ReturnToMainMenu()
     {
+        Debug.Log("ReturnToMainMenu pressed in InGameMenu");
+
+        // Check if GameMenuManager exists and let it handle the return to main menu
+        if (GameMenuManager.Instance != null)
+        {
+            Debug.Log("Delegating to GameMenuManager.ReturnToMainMenu");
+            GameMenuManager.Instance.ReturnToMainMenu();
+            return;
+        }
+
+        Debug.Log("No GameMenuManager found, using native main menu return");
+
         // First hide menu
         if (_menuPanel != null)
             _menuPanel.SetActive(false);
@@ -70,6 +92,7 @@ public class InGameMenu : MonoBehaviour
         }
         else
         {
+            Debug.Log("No active network session, loading main menu directly");
             // No active session, just load the menu
             UnityEngine.SceneManagement.SceneManager.LoadScene(_mainMenuSceneName);
         }
@@ -77,12 +100,10 @@ public class InGameMenu : MonoBehaviour
 
     private IEnumerator DisconnectAndReturnToMenu()
     {
-        UnityEngine.Debug.Log("Shutting down network session before returning to main menu");
+        Debug.Log("Shutting down network session before returning to main menu");
 
         // Start disconnection process
         var disconnectTask = _networkHandler.ShutdownGame();
-
-        // Show some loading UI if you have one
 
         // Wait for disconnect to complete (or timeout after 3 seconds)
         float startTime = Time.time;

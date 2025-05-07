@@ -122,40 +122,27 @@ public class PlayerController : NetworkBehaviour
         // Only for local player
         if (!HasInputAuthority) return;
 
-        // Toggle cursor with Escape
-        if (Input.GetKeyDown(KeyCode.Escape))
+        // Debug key functionality preserved
+        if (HasInputAuthority && Input.GetKeyDown(KeyCode.F3))
         {
-            if (Cursor.lockState == CursorLockMode.Locked)
-            {
-                Cursor.lockState = CursorLockMode.None;
-                Cursor.visible = true;
-            }
-            else
-            {
-                Cursor.lockState = CursorLockMode.Locked;
-                Cursor.visible = false;
-            }
-            if (HasInputAuthority && Input.GetKeyDown(KeyCode.F3))
-            {
-                UnityEngine.Debug.Log($"==== PLAYER DEBUG ====");
-                UnityEngine.Debug.Log($"Player ID: {Object.InputAuthority.PlayerId}");
-                UnityEngine.Debug.Log($"HasInputAuthority: {HasInputAuthority}");
-                UnityEngine.Debug.Log($"HasStateAuthority: {Object.HasStateAuthority}");
+            UnityEngine.Debug.Log($"==== PLAYER DEBUG ====");
+            UnityEngine.Debug.Log($"Player ID: {Object.InputAuthority.PlayerId}");
+            UnityEngine.Debug.Log($"HasInputAuthority: {HasInputAuthority}");
+            UnityEngine.Debug.Log($"HasStateAuthority: {Object.HasStateAuthority}");
 
-                // Get session info from GameStateManager
-                GameStateManager gsm = FindObjectOfType<GameStateManager>();
-                if (gsm != null)
-                {
-                    UnityEngine.Debug.Log($"Game State: {gsm.State}");
-                    UnityEngine.Debug.Log($"Session: {gsm.SessionDisplayName} | {gsm.SessionHash}");
-                    UnityEngine.Debug.Log($"Players Ready: {gsm.PlayersReady.Count}");
-                }
-
-                // Log position and rotation
-                UnityEngine.Debug.Log($"Position: {transform.position}");
-                UnityEngine.Debug.Log($"Rotation: {transform.rotation.eulerAngles}");
-                UnityEngine.Debug.Log("======================");
+            // Get session info from GameStateManager
+            GameStateManager gsm = FindObjectOfType<GameStateManager>();
+            if (gsm != null)
+            {
+                UnityEngine.Debug.Log($"Game State: {gsm.State}");
+                UnityEngine.Debug.Log($"Session: {gsm.SessionDisplayName} | {gsm.SessionHash}");
+                UnityEngine.Debug.Log($"Players Ready: {gsm.PlayersReady.Count}");
             }
+
+            // Log position and rotation
+            UnityEngine.Debug.Log($"Position: {transform.position}");
+            UnityEngine.Debug.Log($"Rotation: {transform.rotation.eulerAngles}");
+            UnityEngine.Debug.Log("======================");
         }
     }
 

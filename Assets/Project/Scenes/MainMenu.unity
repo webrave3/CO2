@@ -3404,7 +3404,7 @@ MonoBehaviour:
   _quitButton: {fileID: 1186962814}
   _sessionNameInput: {fileID: 605507560}
   _playerNameInput: {fileID: 1369341741}
-  _statusText: {fileID: 0}
+  _statusText: {fileID: 430423318}
   _showBrowserButton: {fileID: 1123163206}
   _roomBrowserUI: {fileID: 1176262587}
   _roomCodeInput: {fileID: 177977878}
