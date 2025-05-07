@@ -71,6 +71,23 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
+    private void Start()
+    {
+        Debug.Log("[NetworkRunnerHandler] Start method executing");
+
+        // Make sure we're properly preserved across scenes
+        if (FindObjectsOfType<NetworkRunnerHandler>().Length > 1)
+        {
+            Debug.LogWarning("[NetworkRunnerHandler] Multiple instances found - this might cause issues");
+        }
+
+        // Ensure we have DontDestroyOnLoad set
+        if (transform.parent == null)
+        {
+            DontDestroyOnLoad(gameObject);
+            Debug.Log("[NetworkRunnerHandler] DontDestroyOnLoad applied to ensure persistence");
+        }
+    }
     private void DebugSessionsList()
     {
         if (_runner == null)

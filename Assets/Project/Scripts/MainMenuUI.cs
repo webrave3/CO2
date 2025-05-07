@@ -62,18 +62,33 @@ public class MainMenuUI : MonoBehaviour
 
     void Start()
     {
-        Debug.Log("MainMenuUI Start method executing");
+        Debug.Log("[MainMenuUI] Start method executing");
 
-        // Get NetworkRunnerHandler
-        _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>();
+        // Get NetworkRunnerHandler - first try from BootstrapManager
+        if (BootstrapManager.Instance != null)
+        {
+            _networkRunnerHandler = BootstrapManager.Instance.GetNetworkRunnerHandler();
+            Debug.Log("[MainMenuUI] Attempted to get NetworkRunnerHandler from BootstrapManager");
+        }
+
+        // If still null, try direct lookup
+        if (_networkRunnerHandler == null)
+        {
+            _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>();
+            Debug.Log("[MainMenuUI] Attempted direct lookup for NetworkRunnerHandler");
+        }
 
         if (_networkRunnerHandler == null)
         {
-            Debug.LogError("NetworkRunnerHandler not found");
+            Debug.LogError("[MainMenuUI] NetworkRunnerHandler not found - network features will be disabled");
+            // Optionally disable network-dependent UI elements here
+            if (_hostButton != null) _hostButton.interactable = false;
+            if (_joinButton != null) _joinButton.interactable = false;
+            if (_showBrowserButton != null) _showBrowserButton.interactable = false;
         }
         else
         {
-            Debug.Log("NetworkRunnerHandler found successfully");
+            Debug.Log("[MainMenuUI] NetworkRunnerHandler found successfully");
         }
 
         // Initialize region dropdown

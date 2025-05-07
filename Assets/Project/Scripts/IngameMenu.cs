@@ -19,47 +19,61 @@ public class InGameMenu : MonoBehaviour
 
     private void Start()
     {
+        Debug.Log("[InGameMenu] Initializing...");
         _networkHandler = FindObjectOfType<NetworkRunnerHandler>();
+
+        if (_networkHandler == null)
+            Debug.LogWarning("[InGameMenu] NetworkRunnerHandler not found!");
+        else
+            Debug.Log("[InGameMenu] NetworkRunnerHandler found successfully");
 
         // Ensure menu is hidden at start
         if (_menuPanel != null)
             _menuPanel.SetActive(false);
+        else
+            Debug.LogError("[InGameMenu] Menu panel reference is missing!");
 
         // Setup button listeners
         if (_resumeButton != null)
+        {
+            _resumeButton.onClick.RemoveAllListeners();
             _resumeButton.onClick.AddListener(ToggleMenu);
+            Debug.Log("[InGameMenu] Resume button listener set up");
+        }
 
         if (_mainMenuButton != null)
+        {
+            _mainMenuButton.onClick.RemoveAllListeners();
             _mainMenuButton.onClick.AddListener(ReturnToMainMenu);
+            Debug.Log("[InGameMenu] Main menu button listener set up");
+        }
 
-        Debug.Log("InGameMenu initialized");
-    }
-
-    private void Update()
-    {
-        // Remove Escape key handling from here completely
-        // GameMenuManager now handles this
+        Debug.Log("[InGameMenu] Initialization complete");
     }
 
     public void ToggleMenu()
     {
-        Debug.Log("ToggleMenu called in InGameMenu");
+        Debug.Log("[InGameMenu] ToggleMenu called");
 
         // Check if GameMenuManager exists and let it handle the menu
         if (GameMenuManager.Instance != null)
         {
-            Debug.Log("Delegating to GameMenuManager.ToggleMenu");
+            Debug.Log("[InGameMenu] Delegating to GameMenuManager.ToggleMenu");
             GameMenuManager.Instance.ToggleMenu();
             return;
         }
 
-        // Fallback to original behavior if GameMenuManager doesn't exist
-        Debug.Log("No GameMenuManager found, using native toggle behavior");
+        Debug.Log("[InGameMenu] No GameMenuManager found, using native toggle behavior");
         _isMenuVisible = !_isMenuVisible;
 
         if (_menuPanel != null)
         {
             _menuPanel.SetActive(_isMenuVisible);
+            Debug.Log($"[InGameMenu] Menu panel visibility set to: {_isMenuVisible}");
+        }
+        else
+        {
+            Debug.LogError("[InGameMenu] Menu panel is null!");
         }
 
         // Lock/unlock cursor based on menu state
@@ -69,38 +83,38 @@ public class InGameMenu : MonoBehaviour
 
     public void ReturnToMainMenu()
     {
-        Debug.Log("ReturnToMainMenu pressed in InGameMenu");
+        Debug.Log("[InGameMenu] ReturnToMainMenu called");
 
-        // Check if GameMenuManager exists and let it handle the return to main menu
+        // Proper check for GameMenuManager
         if (GameMenuManager.Instance != null)
         {
-            Debug.Log("Delegating to GameMenuManager.ReturnToMainMenu");
+            Debug.Log("[InGameMenu] GameMenuManager found, delegating ReturnToMainMenu");
             GameMenuManager.Instance.ReturnToMainMenu();
             return;
         }
 
-        Debug.Log("No GameMenuManager found, using native main menu return");
+        Debug.Log("[InGameMenu] GameMenuManager not found, using fallback behavior");
 
-        // First hide menu
+        // Fallback behavior
         if (_menuPanel != null)
             _menuPanel.SetActive(false);
 
         // Properly shutdown network session
         if (_networkHandler != null && _networkHandler.Runner != null)
         {
+            Debug.Log("[InGameMenu] Starting network disconnection via coroutine");
             StartCoroutine(DisconnectAndReturnToMenu());
         }
         else
         {
-            Debug.Log("No active network session, loading main menu directly");
-            // No active session, just load the menu
+            Debug.Log("[InGameMenu] No active network session, loading main menu directly");
             UnityEngine.SceneManagement.SceneManager.LoadScene(_mainMenuSceneName);
         }
     }
 
     private IEnumerator DisconnectAndReturnToMenu()
     {
-        Debug.Log("Shutting down network session before returning to main menu");
+        Debug.Log("[InGameMenu] Shutting down network session before returning to main menu");
 
         // Start disconnection process
         var disconnectTask = _networkHandler.ShutdownGame();
@@ -112,6 +126,7 @@ public class InGameMenu : MonoBehaviour
             yield return null;
         }
 
+        Debug.Log("[InGameMenu] Network disconnect complete, loading main menu");
         // Now load the menu
         UnityEngine.SceneManagement.SceneManager.LoadScene(_mainMenuSceneName);
     }

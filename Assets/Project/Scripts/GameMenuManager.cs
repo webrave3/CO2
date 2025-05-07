@@ -10,38 +10,34 @@ public class GameMenuManager : MonoBehaviour
     public static GameMenuManager Instance { get; private set; }
 
     [Header("Menu Settings")]
-    [SerializeField] private GameObject _menuPrefab;
+    [SerializeField] private GameObject _menuPrefab; // Reference to the InGameMenu prefab
     [SerializeField] private string _mainMenuSceneName = "MainMenu";
     [SerializeField] private KeyCode _menuToggleKey = KeyCode.Escape;
 
-    // Menu Panels
-    [Header("Menu Panels")]
-    [SerializeField] private GameObject _mainMenuPanel;
-    [SerializeField] private GameObject _joinGamePanel;
-    [SerializeField] private GameObject _settingsPanel;
-    [SerializeField] private GameObject _confirmationDialog;
+    // Menu panels - these will be found at runtime
+    private GameObject _menuInstance;
+    private GameObject _mainMenuPanel;
+    private GameObject _joinGamePanel;
+    private GameObject _settingsPanel;
+    private GameObject _confirmationDialog;
 
-    // Button references
-    [Header("Button References")]
-    [SerializeField] private Button _resumeButton;
-    [SerializeField] private Button _joinGameButton;
-    [SerializeField] private Button _settingsButton;
-    [SerializeField] private Button _mainMenuButton;
-    [SerializeField] private Button _quitButton;
+    // Button references - these will be found at runtime
+    private Button _resumeButton;
+    private Button _joinGameButton;
+    private Button _settingsButton;
+    private Button _mainMenuButton;
+    private Button _quitButton;
+    private Button _confirmButton;
+    private Button _cancelButton;
+    private TextMeshProUGUI _confirmationText;
 
-    // Join Game panel references
-    [SerializeField] private TMP_InputField _roomCodeInput;
-    [SerializeField] private Button _directJoinButton;
-    [SerializeField] private TextMeshProUGUI _statusText;
-    [SerializeField] private GameObject _joiningIndicator;
-
-    // Confirmation dialog references
-    [SerializeField] private Button _confirmButton;
-    [SerializeField] private Button _cancelButton;
-    [SerializeField] private TextMeshProUGUI _confirmationText;
+    // Join panel references
+    private TMP_InputField _roomCodeInput;
+    private Button _directJoinButton;
+    private TextMeshProUGUI _statusText;
+    private GameObject _joiningIndicator;
 
     // Private variables
-    private GameObject _menuInstance;
     private NetworkRunnerHandler _networkHandler;
     private bool _isMenuActive = false;
     private bool _isJoining = false;
@@ -50,116 +46,202 @@ public class GameMenuManager : MonoBehaviour
 
     private void Awake()
     {
+        Debug.Log("[GameMenuManager] Awake called");
+
         // Setup singleton
         if (Instance != null && Instance != this)
         {
+            Debug.LogWarning("[GameMenuManager] Multiple instances detected - destroying duplicate");
             Destroy(gameObject);
             return;
         }
 
         Instance = this;
         DontDestroyOnLoad(gameObject);
-
-        // Create menu if it doesn't exist
-        if (_menuInstance == null && _menuPrefab != null)
-        {
-            _menuInstance = Instantiate(_menuPrefab);
-            _menuInstance.transform.SetParent(transform);
-
-            // Find references if not already assigned
-            FindMenuReferences();
-            SetupButtonListeners();
-
-            // Initially hide menu
-            HideAllMenus();
-        }
-
-        Debug.Log("GameMenuManager initialized");
+        Debug.Log("[GameMenuManager] Initialized as singleton");
     }
 
     private void Start()
     {
         // Find network handler
         _networkHandler = FindObjectOfType<NetworkRunnerHandler>();
+        if (_networkHandler == null)
+            Debug.LogWarning("[GameMenuManager] NetworkRunnerHandler not found!");
+
+        // Instantiate menu prefab if assigned
+        if (_menuPrefab != null)
+        {
+            InstantiateAndSetupMenu();
+        }
+        else
+        {
+            Debug.LogError("[GameMenuManager] Menu prefab not assigned!");
+        }
 
         // Listen for scene changes
         SceneManager.sceneLoaded += OnSceneLoaded;
     }
 
-    private void OnDestroy()
+    private void InstantiateAndSetupMenu()
     {
-        SceneManager.sceneLoaded -= OnSceneLoaded;
-    }
+        Debug.Log("[GameMenuManager] Instantiating menu prefab");
 
-    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
-    {
-        // Find network handler in the new scene
-        _networkHandler = FindObjectOfType<NetworkRunnerHandler>();
+        // Instantiate the menu prefab as a child of this GameObject
+        _menuInstance = Instantiate(_menuPrefab, transform);
 
-        // Hide menu on scene change
-        HideAllMenus();
-        _isMenuActive = false;
-
-        // Handle cursor based on scene
-        if (scene.name == _mainMenuSceneName)
+        if (_menuInstance == null)
         {
-            SetCursorState(CursorLockMode.None, true);
-        }
-        else
-        {
-            SetCursorState(CursorLockMode.Locked, false);
-        }
-    }
-
-    private void Update()
-    {
-        // Don't toggle menu in main menu scene
-        if (SceneManager.GetActiveScene().name == _mainMenuSceneName)
+            Debug.LogError("[GameMenuManager] Failed to instantiate menu prefab!");
             return;
-
-        // Toggle menu with Escape key
-        if (Input.GetKeyDown(_menuToggleKey))
-        {
-            ToggleMenu();
         }
+
+        // Find all required components by name/type
+        FindMenuComponents();
+
+        // Set up button listeners
+        SetupButtonListeners();
+
+        // Initially hide the menu
+        HideAllMenus();
+
+        Debug.Log("[GameMenuManager] Menu setup completed successfully");
+
+        // Log component state for debugging
+        LogComponentState();
     }
 
-    private void FindMenuReferences()
+    private void FindMenuComponents()
     {
-        if (_menuInstance == null) return;
+        Debug.Log("[GameMenuManager] Finding menu components");
 
-        // Find all menu panels if not already assigned
+        // Find panels by name - adjust these paths to match your prefab structure
+        _mainMenuPanel = FindChildByName(_menuInstance, "MainPanel");
+        _joinGamePanel = FindChildByName(_menuInstance, "JoinGamePanel");
+        _settingsPanel = FindChildByName(_menuInstance, "SettingsPanel");
+        _confirmationDialog = FindChildByName(_menuInstance, "ConfirmationDialog");
+
+        // Find buttons - adjust the search paths to match your prefab structure
+        _resumeButton = FindButtonByName("ResumeGame", "Resume");
+        _joinGameButton = FindButtonByName("JoinGame");
+        _settingsButton = FindButtonByName("Settings");
+        _mainMenuButton = FindButtonByName("MainMenu", "Exit");
+        _quitButton = FindButtonByName("Quit");
+
+        // Find confirmation dialog elements
+        if (_confirmationDialog != null)
+        {
+            _confirmButton = _confirmationDialog.GetComponentInChildren<Button>();
+
+            // If there are multiple buttons, find the correct ones
+            Button[] dialogButtons = _confirmationDialog.GetComponentsInChildren<Button>();
+            if (dialogButtons.Length >= 2)
+            {
+                _confirmButton = dialogButtons[0]; // Usually the first button
+                _cancelButton = dialogButtons[1]; // Usually the second button
+            }
+
+            // Find confirmation text
+            _confirmationText = _confirmationDialog.GetComponentInChildren<TextMeshProUGUI>();
+        }
+
+        // Find join panel elements if the panel exists
+        if (_joinGamePanel != null)
+        {
+            _roomCodeInput = _joinGamePanel.GetComponentInChildren<TMP_InputField>();
+            _directJoinButton = FindButtonInParent(_joinGamePanel, "DirectJoin", "Join");
+            _statusText = _joinGamePanel.GetComponentInChildren<TextMeshProUGUI>();
+            _joiningIndicator = FindChildByName(_joinGamePanel, "JoiningIndicator", "Loading");
+        }
+
+        // Log any missing critical components
+        ValidateComponents();
+    }
+
+    private GameObject FindChildByName(GameObject parent, params string[] possibleNames)
+    {
+        if (parent == null) return null;
+
+        foreach (string name in possibleNames)
+        {
+            // Try direct child first
+            Transform child = parent.transform.Find(name);
+            if (child != null) return child.gameObject;
+
+            // Try recursive search with partial name matching
+            foreach (Transform t in parent.GetComponentsInChildren<Transform>())
+            {
+                if (t.name.Contains(name))
+                    return t.gameObject;
+            }
+        }
+
+        return null;
+    }
+
+    private Button FindButtonByName(params string[] possibleNames)
+    {
+        if (_menuInstance == null) return null;
+
+        foreach (string name in possibleNames)
+        {
+            Button[] buttons = _menuInstance.GetComponentsInChildren<Button>(true);
+            foreach (Button button in buttons)
+            {
+                if (button.name.Contains(name) ||
+                    (button.GetComponentInChildren<TextMeshProUGUI>() != null &&
+                     button.GetComponentInChildren<TextMeshProUGUI>().text.Contains(name)))
+                {
+                    return button;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private Button FindButtonInParent(GameObject parent, params string[] possibleNames)
+    {
+        if (parent == null) return null;
+
+        foreach (string name in possibleNames)
+        {
+            Button[] buttons = parent.GetComponentsInChildren<Button>(true);
+            foreach (Button button in buttons)
+            {
+                if (button.name.Contains(name) ||
+                    (button.GetComponentInChildren<TextMeshProUGUI>() != null &&
+                     button.GetComponentInChildren<TextMeshProUGUI>().text.Contains(name)))
+                {
+                    return button;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private void ValidateComponents()
+    {
         if (_mainMenuPanel == null)
-            _mainMenuPanel = FindChildObject(_menuInstance.transform, "MainMenuPanel");
+            Debug.LogWarning("[GameMenuManager] MainMenuPanel not found!");
 
-        if (_joinGamePanel == null)
-            _joinGamePanel = FindChildObject(_menuInstance.transform, "JoinGamePanel");
-
-        if (_settingsPanel == null)
-            _settingsPanel = FindChildObject(_menuInstance.transform, "SettingsPanel");
-
-        if (_confirmationDialog == null)
-            _confirmationDialog = FindChildObject(_menuInstance.transform, "ConfirmationDialog");
-
-        // Find button references if not already assigned
         if (_resumeButton == null)
-            _resumeButton = FindButtonInChildren(_menuInstance.transform, "ResumeButton");
-
-        if (_joinGameButton == null)
-            _joinGameButton = FindButtonInChildren(_menuInstance.transform, "JoinGameButton");
-
-        if (_settingsButton == null)
-            _settingsButton = FindButtonInChildren(_menuInstance.transform, "SettingsButton");
+            Debug.LogWarning("[GameMenuManager] ResumeButton not found!");
 
         if (_mainMenuButton == null)
-            _mainMenuButton = FindButtonInChildren(_menuInstance.transform, "MainMenuButton");
+            Debug.LogWarning("[GameMenuManager] MainMenuButton not found!");
 
-        if (_quitButton == null)
-            _quitButton = FindButtonInChildren(_menuInstance.transform, "QuitButton");
+        if (_confirmationDialog == null)
+            Debug.LogWarning("[GameMenuManager] ConfirmationDialog not found!");
+
+        if (_confirmButton == null && _confirmationDialog != null)
+            Debug.LogWarning("[GameMenuManager] ConfirmButton not found in ConfirmationDialog!");
     }
 
     private void SetupButtonListeners()
     {
+        Debug.Log("[GameMenuManager] Setting up button listeners");
+
         // Clear listeners first to avoid duplicates
         if (_resumeButton != null)
         {
@@ -195,7 +277,7 @@ public class GameMenuManager : MonoBehaviour
         if (_confirmButton != null)
         {
             _confirmButton.onClick.RemoveAllListeners();
-            // Action will be assigned dynamically
+            // Action will be assigned dynamically in ShowConfirmation
         }
 
         if (_cancelButton != null)
@@ -212,44 +294,52 @@ public class GameMenuManager : MonoBehaviour
         }
     }
 
-    private GameObject FindChildObject(Transform parent, string childName)
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
-        Transform child = parent.Find(childName);
-        if (child != null)
-            return child.gameObject;
+        Debug.Log($"[GameMenuManager] Scene loaded: {scene.name}");
 
-        // If not found directly, search recursively
-        foreach (Transform t in parent)
+        // Find network handler in the new scene if needed
+        if (_networkHandler == null)
+            _networkHandler = FindObjectOfType<NetworkRunnerHandler>();
+
+        // Hide menu on scene change
+        HideAllMenus();
+        _isMenuActive = false;
+
+        // Handle cursor based on scene
+        if (scene.name == _mainMenuSceneName)
         {
-            GameObject found = FindChildObject(t, childName);
-            if (found != null)
-                return found;
+            SetCursorState(CursorLockMode.None, true);
         }
-
-        return null;
+        else
+        {
+            SetCursorState(CursorLockMode.Locked, false);
+        }
     }
 
-    private Button FindButtonInChildren(Transform parent, string buttonName)
+    private void OnDestroy()
     {
-        // First try direct lookup
-        Transform buttonTransform = parent.Find(buttonName);
-        if (buttonTransform != null)
-            return buttonTransform.GetComponent<Button>();
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
 
-        // Try recursive lookup with partial name match
-        Button[] allButtons = parent.GetComponentsInChildren<Button>(true);
-        foreach (Button button in allButtons)
+    private void Update()
+    {
+        // Don't toggle menu in main menu scene
+        if (SceneManager.GetActiveScene().name == _mainMenuSceneName)
+            return;
+
+        // Toggle menu with Escape key
+        if (Input.GetKeyDown(_menuToggleKey))
         {
-            if (button.name.Contains(buttonName))
-                return button;
+            Debug.Log("[GameMenuManager] Menu toggle key pressed");
+            ToggleMenu();
         }
-
-        return null;
     }
 
     public void ToggleMenu()
     {
         _isMenuActive = !_isMenuActive;
+        Debug.Log($"[GameMenuManager] Toggling menu, active: {_isMenuActive}");
 
         if (_isMenuActive)
         {
@@ -260,6 +350,8 @@ public class GameMenuManager : MonoBehaviour
             // Show main menu panel and unlock cursor
             if (_mainMenuPanel != null)
                 _mainMenuPanel.SetActive(true);
+            else
+                Debug.LogError("[GameMenuManager] Can't show menu - MainMenuPanel is null!");
 
             SetCursorState(CursorLockMode.None, true);
         }
@@ -275,7 +367,11 @@ public class GameMenuManager : MonoBehaviour
 
     public void ShowJoinGamePanel()
     {
-        if (_joinGamePanel == null) return;
+        if (_joinGamePanel == null)
+        {
+            Debug.LogError("[GameMenuManager] JoinGamePanel is null!");
+            return;
+        }
 
         HideAllMenus();
         _joinGamePanel.SetActive(true);
@@ -294,7 +390,11 @@ public class GameMenuManager : MonoBehaviour
 
     public void ShowSettingsPanel()
     {
-        if (_settingsPanel == null) return;
+        if (_settingsPanel == null)
+        {
+            Debug.LogError("[GameMenuManager] SettingsPanel is null!");
+            return;
+        }
 
         HideAllMenus();
         _settingsPanel.SetActive(true);
@@ -302,7 +402,54 @@ public class GameMenuManager : MonoBehaviour
 
     private void ShowConfirmation(string message, UnityEngine.Events.UnityAction onConfirm)
     {
-        if (_confirmationDialog == null) return;
+        Debug.Log($"[GameMenuManager] ShowConfirmation called with message: {message}");
+
+        if (_confirmationDialog == null)
+        {
+            Debug.LogError("[GameMenuManager] ConfirmationDialog is null!");
+
+            // Attempt to find it if not already found
+            _confirmationDialog = FindChildByName(_menuInstance, "ConfirmationDialog");
+
+            if (_confirmationDialog == null)
+            {
+                Debug.LogError("[GameMenuManager] Could not find ConfirmationDialog in menu hierarchy!");
+                // As a fallback, just execute the action
+                onConfirm.Invoke();
+                return;
+            }
+        }
+
+        // Find text component if not already assigned
+        if (_confirmationText == null)
+        {
+            _confirmationText = _confirmationDialog.GetComponentInChildren<TextMeshProUGUI>();
+            if (_confirmationText == null)
+                Debug.LogWarning("[GameMenuManager] Could not find text component in confirmation dialog");
+        }
+
+        // Find buttons if not already assigned
+        if (_confirmButton == null || _cancelButton == null)
+        {
+            // Try to find with both possible names
+            Button[] buttons = _confirmationDialog.GetComponentsInChildren<Button>();
+
+            foreach (Button button in buttons)
+            {
+                // Check for Confirm/Yes button
+                if (button.name.Contains("Confirm") || button.name.Contains("Yes"))
+                    _confirmButton = button;
+                // Check for Cancel/No button
+                else if (button.name.Contains("Cancel") || button.name.Contains("No"))
+                    _cancelButton = button;
+            }
+
+            if (_confirmButton == null)
+                Debug.LogError("[GameMenuManager] Could not find confirm button in dialog!");
+
+            if (_cancelButton == null)
+                Debug.LogError("[GameMenuManager] Could not find cancel button in dialog!");
+        }
 
         // Set confirmation message
         if (_confirmationText != null)
@@ -313,19 +460,46 @@ public class GameMenuManager : MonoBehaviour
         {
             _confirmButton.onClick.RemoveAllListeners();
             _confirmButton.onClick.AddListener(() => {
+                Debug.Log("[GameMenuManager] Confirm button clicked, executing callback");
                 onConfirm.Invoke();
+                HideConfirmation();
+            });
+        }
+        else
+        {
+            Debug.LogError("[GameMenuManager] Can't set up confirm button - it's null!");
+            onConfirm.Invoke(); // Fallback
+            return;
+        }
+
+        // Setup cancel button
+        if (_cancelButton != null)
+        {
+            _cancelButton.onClick.RemoveAllListeners();
+            _cancelButton.onClick.AddListener(() => {
+                Debug.Log("[GameMenuManager] Cancel button clicked");
                 HideConfirmation();
             });
         }
 
         // Show dialog
         _confirmationDialog.SetActive(true);
+        Debug.Log("[GameMenuManager] Confirmation dialog displayed");
     }
 
     private void HideConfirmation()
     {
+        Debug.Log("[GameMenuManager] HideConfirmation called");
+
         if (_confirmationDialog != null)
+        {
             _confirmationDialog.SetActive(false);
+            Debug.Log("[GameMenuManager] Confirmation dialog hidden");
+        }
+        else
+        {
+            Debug.LogWarning("[GameMenuManager] Cannot hide confirmation dialog - it's null!");
+        }
     }
 
     private void HideAllMenus()
@@ -346,19 +520,29 @@ public class GameMenuManager : MonoBehaviour
 
     public void ReturnToMainMenu()
     {
-        HideAllMenus();
-        _isMenuActive = false;
+        Debug.Log("[GameMenuManager] ReturnToMainMenu called");
 
-        // Properly shutdown network session
-        if (_networkHandler != null && _networkHandler.Runner != null && _networkHandler.Runner.IsRunning)
-        {
-            StartCoroutine(DisconnectAndReturnToMenu());
-        }
-        else
-        {
-            // No active session, just load menu
-            SceneManager.LoadScene(_mainMenuSceneName);
-        }
+        // Show confirmation dialog
+        ShowConfirmation("Are you sure you want to return to the main menu?\nThis will disconnect you from the current game.", () => {
+            Debug.Log("[GameMenuManager] User confirmed return to main menu");
+
+            // Hide all menus including confirmation dialog
+            HideAllMenus();
+            _isMenuActive = false;
+
+            // Properly shutdown network session
+            if (_networkHandler != null && _networkHandler.Runner != null && _networkHandler.Runner.IsRunning)
+            {
+                Debug.Log("[GameMenuManager] Starting network disconnection process");
+                StartCoroutine(DisconnectAndReturnToMenu());
+            }
+            else
+            {
+                Debug.Log("[GameMenuManager] No active network session, loading main menu directly");
+                // No active session, just load menu
+                SceneManager.LoadScene(_mainMenuSceneName);
+            }
+        });
     }
 
     private async void JoinGameByCode()
@@ -429,7 +613,11 @@ public class GameMenuManager : MonoBehaviour
 
     private void ShowStatusMessage(string message, Color color)
     {
-        if (_statusText == null) return;
+        if (_statusText == null)
+        {
+            Debug.LogWarning("[GameMenuManager] StatusText is null!");
+            return;
+        }
 
         _statusText.text = message;
         _statusText.color = color;
@@ -438,7 +626,7 @@ public class GameMenuManager : MonoBehaviour
 
     private IEnumerator DisconnectAndReturnToMenu()
     {
-        Debug.Log("Disconnecting before returning to menu");
+        Debug.Log("[GameMenuManager] Disconnecting before returning to menu");
 
         // Start disconnection
         var disconnectTask = _networkHandler.ShutdownGame();
@@ -450,13 +638,14 @@ public class GameMenuManager : MonoBehaviour
             yield return null;
         }
 
+        Debug.Log("[GameMenuManager] Network disconnection complete (or timed out), loading main menu");
         // Load main menu
         SceneManager.LoadScene(_mainMenuSceneName);
     }
 
     private void QuitGame()
     {
-        Debug.Log("Quitting game");
+        Debug.Log("[GameMenuManager] Quitting game");
 
         // Make sure to disconnect first
         if (_networkHandler != null && _networkHandler.Runner != null && _networkHandler.Runner.IsRunning)
@@ -475,5 +664,24 @@ public class GameMenuManager : MonoBehaviour
     {
         Cursor.lockState = lockMode;
         Cursor.visible = visible;
+    }
+
+    private void LogComponentState()
+    {
+        Debug.Log("===== GAME MENU MANAGER STATE =====");
+        Debug.Log($"Instance valid: {Instance != null}");
+        Debug.Log($"MenuPrefab assigned: {_menuPrefab != null}");
+        Debug.Log($"Menu instance created: {_menuInstance != null}");
+        Debug.Log($"NetworkHandler found: {_networkHandler != null}");
+        Debug.Log($"MainMenuPanel found: {_mainMenuPanel != null}");
+        Debug.Log($"JoinGamePanel found: {_joinGamePanel != null}");
+        Debug.Log($"SettingsPanel found: {_settingsPanel != null}");
+        Debug.Log($"ConfirmationDialog found: {_confirmationDialog != null}");
+        Debug.Log($"ResumeButton found: {_resumeButton != null}");
+        Debug.Log($"MainMenuButton found: {_mainMenuButton != null}");
+        Debug.Log($"ConfirmButton found: {_confirmButton != null}");
+        Debug.Log($"CancelButton found: {_cancelButton != null}");
+        Debug.Log($"IsMenuActive: {_isMenuActive}");
+        Debug.Log("===================================");
     }
 }
