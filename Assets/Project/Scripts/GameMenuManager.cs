@@ -331,7 +331,15 @@ public class GameMenuManager : MonoBehaviour
         // Toggle menu with Escape key
         if (Input.GetKeyDown(_menuToggleKey))
         {
-            Debug.Log("[GameMenuManager] Menu toggle key pressed");
+            Debug.Log($"[GameMenuManager] Menu toggle key {_menuToggleKey} pressed");
+            ToggleMenu();
+        }
+
+        // CRITICAL FIX: Explicitly handle Escape to prevent disconnection
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            Debug.Log("[GameMenuManager] Escape key intercepted");
+            // Show menu instead of disconnecting
             ToggleMenu();
         }
     }
@@ -347,11 +355,35 @@ public class GameMenuManager : MonoBehaviour
             _previousCursorLockState = Cursor.lockState;
             _previousCursorVisible = Cursor.visible;
 
-            // Show main menu panel and unlock cursor
+            // CRITICAL FIX: Make sure menu panel exists and is properly shown
             if (_mainMenuPanel != null)
+            {
+                Debug.Log("[GameMenuManager] Activating menu panel");
                 _mainMenuPanel.SetActive(true);
+
+                // Debug log menu panel hierarchy
+                Transform current = _mainMenuPanel.transform;
+                string path = current.name;
+                while (current.parent != null)
+                {
+                    current = current.parent;
+                    path = current.name + "/" + path;
+                }
+                Debug.Log($"Menu panel hierarchy: {path}");
+            }
             else
+            {
                 Debug.LogError("[GameMenuManager] Can't show menu - MainMenuPanel is null!");
+
+                // Try to find it if not already found
+                _mainMenuPanel = FindChildByName(_menuInstance, "MainPanel");
+
+                if (_mainMenuPanel != null)
+                {
+                    _mainMenuPanel.SetActive(true);
+                    Debug.Log("[GameMenuManager] Found and activated MainMenuPanel");
+                }
+            }
 
             SetCursorState(CursorLockMode.None, true);
         }

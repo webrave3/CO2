@@ -20,6 +20,15 @@ public class InGameMenu : MonoBehaviour
     private void Start()
     {
         Debug.Log("[InGameMenu] Initializing...");
+
+        // Check if GameMenuManager exists - if so, disable this component
+        if (GameMenuManager.Instance != null)
+        {
+            Debug.Log("[InGameMenu] GameMenuManager found, disabling this component");
+            this.enabled = false;
+            return;
+        }
+
         _networkHandler = FindObjectOfType<NetworkRunnerHandler>();
 
         if (_networkHandler == null)

@@ -21,6 +21,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     [Header("Network Settings")]
     [SerializeField] private int _maxPlayers = 6;
     [SerializeField] private bool _enableDiscovery = true;
+    [SerializeField] private bool _debugIncludeSelfHostedSessions = true;
 
     // Session information
     public string SessionDisplayName { get; private set; }
@@ -32,12 +33,21 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     private NetworkRunner _runner;
     private NetworkSceneManagerDefault _sceneManager;
 
+    // Discovery-specific fields
+    private NetworkRunner _discoveryRunner;
+    private bool _isDiscoveryRunning = false;
+    private DateTime _lastRefreshTime = DateTime.MinValue;
+
     // Store available sessions locally since we can't access them directly
     private List<SessionInfo> _availableSessions = new List<SessionInfo>();
     private bool _isJoining = false;
 
     public bool IsSessionActive => _runner != null && _runner.IsRunning;
     public NetworkRunner Runner => _runner;
+
+    // Add this property to check discovery status
+    public bool IsDiscoveryRunning => _isDiscoveryRunning &&
+        _discoveryRunner != null && _discoveryRunner.IsRunning;
 
     // Expose available sessions for the room browser
     public List<SessionInfo> GetAvailableSessions()
@@ -88,6 +98,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             Debug.Log("[NetworkRunnerHandler] DontDestroyOnLoad applied to ensure persistence");
         }
     }
+
     private void DebugSessionsList()
     {
         if (_runner == null)
@@ -138,7 +149,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     {
         try
         {
-            Debug.Log("Starting host game with session name: " + sessionName);
+            Debug.Log($"Starting host game with session name: {sessionName}, region: {region}, allowAllRegions: {allowAllRegions}");
 
             // Reset the runner first to ensure clean state
             await ResetNetworkRunner();
@@ -154,8 +165,11 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             sessionProps.Add("Hash", SessionHash);
             sessionProps.Add("StartTime", (int)SessionStartTime);
 
-            // Note: In Fusion 2.0.5, we can't set the region directly
-            // You would need to configure this in the Photon settings in the Editor
+            // Important: Add region to session properties
+            if (!string.IsNullOrEmpty(region) && region != "auto" && region != "best")
+            {
+                sessionProps.Add("Region", region);
+            }
 
             // Start the game in host mode
             var startGameArgs = new StartGameArgs()
@@ -169,11 +183,15 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
                 IsOpen = true
             };
 
+            // Note: Fusion 2.0.5 handles region differently - there's no direct property
+            // Instead, we have to configure via the Photon App Settings or
+            // it uses the closest/best region automatically
+
             var result = await _runner.StartGame(startGameArgs);
 
             if (result.Ok)
             {
-                Debug.Log($"Host game started successfully");
+                Debug.Log($"Host game started successfully in region: {region}");
 
                 // Save session info for reconnection
                 PlayerPrefs.SetString("LastSessionID", SessionUniqueID);
@@ -289,108 +307,66 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     {
         Debug.Log("[BROWSER] Starting session refresh...");
 
-        // Check if we have a valid runner first
-        if (_runner == null)
+        try
         {
-            Debug.LogError("[BROWSER] NetworkRunner is null! Cannot refresh sessions.");
-            return;
-        }
-
-        // If we're already in a connected session, we can't use the same runner for discovery
-        if (_runner.IsRunning && _runner.SessionInfo != null)
-        {
-            Debug.Log("[BROWSER] Already in a session, using existing session list");
-            return;
-        }
-
-        // Ensure our runner is in a suitable state for finding sessions
-        bool needToRestartRunner = false;
-
-        // If the runner is in an invalid state, shut it down first
-        if (_runner.IsRunning && !_runner.IsShutdown)
-        {
-            try
+            // Create discovery runner if it doesn't exist
+            if (_discoveryRunner == null)
             {
-                Debug.Log("[BROWSER] Shutting down existing runner before refresh");
-                await _runner.Shutdown();
-                await Task.Delay(200); // Short delay to ensure clean shutdown
+                Debug.Log("[BROWSER] Creating new discovery runner");
+                _discoveryRunner = gameObject.AddComponent<NetworkRunner>();
             }
-            catch (Exception ex)
+
+            // Don't refresh too frequently (rate limiting)
+            if ((DateTime.Now - _lastRefreshTime).TotalSeconds < 2)
             {
-                Debug.LogError($"[BROWSER] Error shutting down runner: {ex.Message}");
-            }
-            needToRestartRunner = true;
-        }
-        else if (!_runner.IsRunning)
-        {
-            needToRestartRunner = true;
-        }
-
-        // If needed, restart the runner in a clean state
-        if (needToRestartRunner)
-        {
-            try
-            {
-                Debug.Log("[BROWSER] Starting new runner for session discovery");
-
-                // Use a unique session name to prevent auto-joining
-                string sessionBrowserId = "BROWSER_" + DateTime.Now.Ticks;
-
-                var startGameArgs = new StartGameArgs()
-                {
-                    GameMode = GameMode.Client,
-                    SessionName = sessionBrowserId,
-                    SceneManager = _sceneManager,
-                    IsVisible = false // Don't advertise our temporary session
-                };
-
-                var result = await _runner.StartGame(startGameArgs);
-
-                if (!result.Ok)
-                {
-                    Debug.LogError($"[BROWSER] Failed to start discovery runner: {result.ShutdownReason}");
-                    return;
-                }
-
-                Debug.Log("[BROWSER] Started discovery runner successfully");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"[BROWSER] Error creating discovery runner: {ex.Message}");
+                Debug.Log("[BROWSER] Refresh requested too soon after previous refresh");
                 return;
             }
+
+            _lastRefreshTime = DateTime.Now;
+
+            // If we already have a discovery session running, shut it down
+            if (_isDiscoveryRunning && !_discoveryRunner.IsShutdown)
+            {
+                Debug.Log("[BROWSER] Shutting down existing discovery runner");
+                await _discoveryRunner.Shutdown();
+                await Task.Delay(200); // Short delay to ensure clean shutdown
+            }
+
+            // Start a fresh discovery session
+            Debug.Log("[BROWSER] Starting new discovery runner");
+
+            // Use a unique session name for discovery
+            string sessionBrowserId = "BROWSER_" + DateTime.Now.Ticks;
+
+            var startGameArgs = new StartGameArgs()
+            {
+                GameMode = GameMode.Client,
+                SessionName = sessionBrowserId,
+                SceneManager = _sceneManager,
+                IsVisible = false // Don't advertise our temporary session
+            };
+
+            var result = await _discoveryRunner.StartGame(startGameArgs);
+
+            if (!result.Ok)
+            {
+                Debug.LogError($"[BROWSER] Failed to start discovery runner: {result.ShutdownReason}");
+                _isDiscoveryRunning = false;
+                return;
+            }
+
+            _isDiscoveryRunning = true;
+            Debug.Log("[BROWSER] Started discovery runner successfully");
+
+            // Wait for network to respond with session list
+            Debug.Log("[BROWSER] Waiting for session list updates...");
+            await Task.Delay(2000); // Wait for session list updates
         }
-
-        // Clear existing session list to avoid showing stale data
-        // Store in a temporary variable first to avoid race conditions
-        List<SessionInfo> oldSessions = new List<SessionInfo>(_availableSessions);
-        _availableSessions.Clear();
-
-        // Wait for network to respond with session list
-        Debug.Log("[BROWSER] Waiting for session list updates...");
-        await Task.Delay(2000); // Wait for session list updates
-
-        // If we received no new sessions, restore the old list
-        if (_availableSessions.Count == 0 && oldSessions.Count > 0)
+        catch (Exception ex)
         {
-            Debug.Log("[BROWSER] No new sessions found, restoring previous session list");
-            _availableSessions = oldSessions;
-        }
-
-        // Log what was found
-        Debug.Log($"[BROWSER] Found {_availableSessions.Count} sessions:");
-        foreach (var session in _availableSessions)
-        {
-            string name = "Unknown";
-            string hash = "Unknown";
-
-            if (session.Properties.TryGetValue("DisplayName", out var nameObj))
-                name = nameObj.PropertyValue.ToString();
-
-            if (session.Properties.TryGetValue("Hash", out var hashObj))
-                hash = hashObj.PropertyValue.ToString();
-
-            Debug.Log($"[BROWSER] - {name} | Hash: {hash} | Players: {session.PlayerCount}/{session.MaxPlayers}");
+            Debug.LogError($"[BROWSER] Error creating discovery runner: {ex.Message}");
+            _isDiscoveryRunning = false;
         }
     }
 
@@ -740,13 +716,45 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     public void OnSessionListUpdated(NetworkRunner runner, List<SessionInfo> sessionList)
     {
         Debug.Log($"Session list updated: {sessionList.Count} sessions available");
-        _availableSessions = sessionList;
+
+        // Create a new list to avoid modifying the original
+        List<SessionInfo> updatedList = new List<SessionInfo>(sessionList);
+
+        // CRITICAL FIX: More robust self-hosted session detection
+        // Check if this update came from our discovery runner and we're hosting
+        if (_debugIncludeSelfHostedSessions && _runner != null &&
+            _runner.IsRunning && _runner.IsServer && _runner.SessionInfo != null)
+        {
+            Debug.Log($"Self-hosted session check: Name={_runner.SessionInfo.Name}, Runner={_runner != null}");
+
+            // Check if our session is already in the list
+            bool foundOwnSession = false;
+            foreach (var session in sessionList)
+            {
+                // Compare by Name which is the unique identifier
+                if (session.Name == _runner.SessionInfo.Name)
+                {
+                    foundOwnSession = true;
+                    Debug.Log("Found self-hosted session in list already");
+                    break;
+                }
+            }
+
+            // If our session isn't in the list, add it
+            if (!foundOwnSession)
+            {
+                Debug.Log($"ADDING self-hosted session to room list: {_runner.SessionInfo.Name}");
+                updatedList.Add(_runner.SessionInfo);
+            }
+        }
+
+        _availableSessions = updatedList;
 
         // If we're in joining mode, log all available sessions to help with debugging
         if (_isJoining)
         {
             Debug.Log("Available sessions while joining:");
-            foreach (var session in sessionList)
+            foreach (var session in updatedList)
             {
                 string displayName = session.Name;
                 string hash = "N/A";
@@ -778,11 +786,84 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         // Clear player dictionary
         _spawnedCharacters.Clear();
 
-        // If we're not in the main menu, go back there
-        if (SceneManager.GetActiveScene().name != "MainMenu")
+        // Only go back to main menu if this was the main runner, not the discovery runner
+        if (runner == _runner && SceneManager.GetActiveScene().name != "MainMenu")
         {
             SceneManager.LoadScene("MainMenu");
         }
+    }
+
+    public void RecoverNetworkState()
+    {
+        Debug.Log("Attempting to recover network state...");
+
+        // First check if runner needs cleanup
+        if (_runner != null && _runner.IsShutdown)
+        {
+            Debug.Log("Cleaning up shutdown runner");
+            Destroy(_runner);
+            _runner = gameObject.AddComponent<NetworkRunner>();
+        }
+
+        // Do the same for discovery runner
+        if (_discoveryRunner != null && _discoveryRunner.IsShutdown)
+        {
+            Debug.Log("Cleaning up shutdown discovery runner");
+            Destroy(_discoveryRunner);
+            _discoveryRunner = null;
+            _isDiscoveryRunning = false;
+        }
+
+        // Ensure we have valid runner instances
+        if (_runner == null)
+        {
+            Debug.Log("Creating new main NetworkRunner");
+            _runner = gameObject.AddComponent<NetworkRunner>();
+        }
+
+        Debug.Log("Network state recovery complete");
+    }
+
+    // Add this to handle null NetworkRunnerHandler exceptions
+    public static NetworkRunnerHandler GetInstance()
+    {
+        NetworkRunnerHandler instance = FindObjectOfType<NetworkRunnerHandler>();
+
+        if (instance == null)
+        {
+            Debug.LogWarning("NetworkRunnerHandler not found, creating new instance");
+            GameObject go = new GameObject("NetworkRunnerHandler");
+            instance = go.AddComponent<NetworkRunnerHandler>();
+            DontDestroyOnLoad(go);
+        }
+
+        return instance;
+    }
+
+    public void LogNetworkState()
+    {
+        Debug.Log("======= NETWORK STATE =======");
+        Debug.Log($"Main Runner: {(_runner != null ? "Valid" : "NULL")}");
+        if (_runner != null)
+        {
+            Debug.Log($"- IsRunning: {_runner.IsRunning}");
+            Debug.Log($"- IsServer: {_runner.IsServer}");
+            Debug.Log($"- IsShutdown: {_runner.IsShutdown}");
+            Debug.Log($"- SessionInfo: {(_runner.SessionInfo != null ? _runner.SessionInfo.Name : "NULL")}");
+        }
+
+        Debug.Log($"Discovery Runner: {(_discoveryRunner != null ? "Valid" : "NULL")}");
+        if (_discoveryRunner != null)
+        {
+            Debug.Log($"- IsRunning: {_discoveryRunner.IsRunning}");
+            Debug.Log($"- IsShutdown: {_discoveryRunner.IsShutdown}");
+        }
+
+        Debug.Log($"IsDiscoveryRunning: {_isDiscoveryRunning}");
+        Debug.Log($"Available Sessions: {_availableSessions.Count}");
+        Debug.Log($"SessionHash: {SessionHash}");
+        Debug.Log($"SessionUniqueID: {SessionUniqueID}");
+        Debug.Log("============================");
     }
 
     // Required INetworkRunnerCallbacks methods

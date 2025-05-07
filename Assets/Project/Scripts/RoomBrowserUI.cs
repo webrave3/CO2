@@ -227,18 +227,32 @@ public class RoomBrowserUI : MonoBehaviour
     {
         Debug.Log("[UI] RefreshRoomList called");
 
-        // Safety check first
+        // CRITICAL FIX: Try different ways to find NetworkRunnerHandler if null
         if (_networkRunnerHandler == null)
         {
-            ShowStatusMessage("Network system not initialized", Color.red);
-            Debug.LogError("[UI] NetworkRunnerHandler is null during refresh!");
-            return;
-        }
+            // First try regular FindObjectOfType
+            _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>();
 
-        if (_roomListContent == null || _roomEntryPrefab == null)
-        {
-            Debug.LogError("[UI] Room list references missing");
-            return;
+            // If still null, try the BootstrapManager
+            if (_networkRunnerHandler == null && BootstrapManager.Instance != null)
+            {
+                _networkRunnerHandler = BootstrapManager.Instance.GetNetworkRunnerHandler();
+                Debug.Log("[UI] Found NetworkRunnerHandler via BootstrapManager");
+            }
+
+            // Last resort: get the static instance
+            if (_networkRunnerHandler == null)
+            {
+                _networkRunnerHandler = NetworkRunnerHandler.GetInstance();
+                Debug.Log("[UI] Created new NetworkRunnerHandler via GetInstance");
+            }
+
+            if (_networkRunnerHandler == null)
+            {
+                ShowStatusMessage("Network system not initialized", Color.red);
+                Debug.LogError("[UI] All attempts to find NetworkRunnerHandler failed!");
+                return;
+            }
         }
 
         try
@@ -275,6 +289,9 @@ public class RoomBrowserUI : MonoBehaviour
         {
             Debug.LogError($"[UI] Error during room refresh: {ex.Message}\n{ex.StackTrace}");
             ShowStatusMessage($"Error: {ex.Message}", Color.red);
+
+            // Try to recover
+            _networkRunnerHandler?.RecoverNetworkState();
         }
     }
 

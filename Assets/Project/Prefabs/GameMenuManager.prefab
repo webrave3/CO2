@@ -46,20 +46,4 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _menuPrefab: {fileID: 3669466062135006702, guid: b64ac669c8065dc44961aedda93d0ee0, type: 3}
   _mainMenuSceneName: MainMenu
-  _menuToggleKey: 27
-  _mainMenuPanel: {fileID: 0}
-  _joinGamePanel: {fileID: 0}
-  _settingsPanel: {fileID: 0}
-  _confirmationDialog: {fileID: 0}
-  _resumeButton: {fileID: 0}
-  _joinGameButton: {fileID: 0}
-  _settingsButton: {fileID: 0}
-  _mainMenuButton: {fileID: 0}
-  _quitButton: {fileID: 0}
-  _roomCodeInput: {fileID: 0}
-  _directJoinButton: {fileID: 0}
-  _statusText: {fileID: 0}
-  _joiningIndicator: {fileID: 0}
-  _confirmButton: {fileID: 0}
-  _cancelButton: {fileID: 0}
-  _confirmationText: {fileID: 0}
+  _menuToggleKey: 109

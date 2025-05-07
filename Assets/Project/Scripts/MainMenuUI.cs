@@ -295,6 +295,7 @@ public class MainMenuUI : MonoBehaviour
         if (_regionDropdown != null && _regionDropdown.value >= 0)
         {
             selectedRegion = _regionCodes.ElementAt(_regionDropdown.value).Value;
+            Debug.Log($"Selected region: {selectedRegion}");
         }
 
         // Start host using the updated method with region
@@ -305,8 +306,18 @@ public class MainMenuUI : MonoBehaviour
         else
         {
             Debug.LogError("Cannot start host - NetworkRunnerHandler is null");
-            // Return to main panel if failed
-            ShowPanel(_mainPanel);
+            // Try to recover by getting the instance
+            _networkRunnerHandler = NetworkRunnerHandler.GetInstance();
+
+            if (_networkRunnerHandler != null)
+            {
+                await _networkRunnerHandler.StartHostGame(sessionName, selectedRegion, _useAllRegions);
+            }
+            else
+            {
+                // Return to main panel if failed
+                ShowPanel(_mainPanel);
+            }
         }
     }
 
