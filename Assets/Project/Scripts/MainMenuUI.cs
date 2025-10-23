@@ -14,7 +14,7 @@ public class MainMenuUI : MonoBehaviour
     [SerializeField] private Button _quitButton;
     [SerializeField] private TMP_InputField _sessionNameInput;
     [SerializeField] private TMP_InputField _playerNameInput;
-    [SerializeField] private TextMeshProUGUI _statusText;
+    [SerializeField] private TextMeshProUGUI _statusText; // Still useful for loading/error messages
 
     [Header("Room Browser")]
     [SerializeField] private Button _showBrowserButton;
@@ -34,7 +34,7 @@ public class MainMenuUI : MonoBehaviour
     [SerializeField] private GameObject _settingsPanel;
     [SerializeField] private GameObject _loadingPanel;
 
-    [Header("Navigation Buttons")]
+    [Header("Navigation Buttons")] // Keep if used for panel switching
     [SerializeField] private Button _hostGameNavButton;
     [SerializeField] private Button _joinGameNavButton;
     [SerializeField] private Button _settingsNavButton;
@@ -42,7 +42,7 @@ public class MainMenuUI : MonoBehaviour
     [Header("Region Selection")]
     [SerializeField] private TMP_Dropdown _regionDropdown;
     [SerializeField] private bool _useAllRegions = true;
-    [SerializeField] private Button _debugButton;
+    // Removed: [SerializeField] private Button _debugButton;
 
     // Dictionary of region names to codes
     private Dictionary<string, string> _regionCodes = new Dictionary<string, string>()
@@ -62,33 +62,26 @@ public class MainMenuUI : MonoBehaviour
 
     void Start()
     {
-        Debug.Log("[MainMenuUI] Start method executing");
-
         // Get NetworkRunnerHandler - first try from BootstrapManager
         if (BootstrapManager.Instance != null)
         {
             _networkRunnerHandler = BootstrapManager.Instance.GetNetworkRunnerHandler();
-            Debug.Log("[MainMenuUI] Attempted to get NetworkRunnerHandler from BootstrapManager");
         }
 
         // If still null, try direct lookup
         if (_networkRunnerHandler == null)
         {
             _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>();
-            Debug.Log("[MainMenuUI] Attempted direct lookup for NetworkRunnerHandler");
         }
 
         if (_networkRunnerHandler == null)
         {
-            Debug.LogError("[MainMenuUI] NetworkRunnerHandler not found - network features will be disabled");
             // Optionally disable network-dependent UI elements here
+            ShowStatusMessage("Network Error: Handler not found.", true); // Show persistent error
             if (_hostButton != null) _hostButton.interactable = false;
             if (_joinButton != null) _joinButton.interactable = false;
             if (_showBrowserButton != null) _showBrowserButton.interactable = false;
-        }
-        else
-        {
-            Debug.Log("[MainMenuUI] NetworkRunnerHandler found successfully");
+            if (_directJoinButton != null) _directJoinButton.interactable = false;
         }
 
         // Initialize region dropdown
@@ -100,79 +93,57 @@ public class MainMenuUI : MonoBehaviour
             _sessionNameInput.text = _defaultSessionName;
         }
 
-        // Set default player name if not set
-        if (_playerNameInput != null && string.IsNullOrEmpty(_playerNameInput.text))
+        // Set default player name if not set, load saved name if available
+        if (_playerNameInput != null)
         {
-            _playerNameInput.text = "Player" + UnityEngine.Random.Range(1000, 9999);
+            if (PlayerPrefs.HasKey("PlayerName"))
+            {
+                _playerNameInput.text = PlayerPrefs.GetString("PlayerName");
+            }
+            else if (string.IsNullOrEmpty(_playerNameInput.text))
+            {
+                _playerNameInput.text = "Player" + UnityEngine.Random.Range(1000, 9999);
+            }
         }
 
+
         // Set up UI callbacks - Clear all listeners first to avoid duplicates
-        SetupButton(_hostButton, () => {
-            Debug.Log("Host button clicked");
-            ShowPanel(_hostPanel);
-        }, "Host Button");
-
+        SetupButton(_hostButton, () => ShowPanel(_hostPanel));
         SetupButton(_joinButton, () => {
-            Debug.Log("Join button clicked");
             ShowPanel(_joinGamePanel);
+            if (_roomBrowserUI != null) _roomBrowserUI.ShowRoomBrowser();
+        });
+        SetupButton(_settingsButton, () => ShowPanel(_settingsPanel));
+        SetupButton(_quitButton, OnQuitButtonClicked);
 
-            // Also refresh room list if room browser UI exists
-            if (_roomBrowserUI != null)
-            {
-                _roomBrowserUI.ShowRoomBrowser();
-            }
-        }, "Join Button");
-
-        SetupButton(_settingsButton, () => {
-            Debug.Log("Settings button clicked");
-            ShowPanel(_settingsPanel);
-        }, "Settings Button");
-
-        SetupButton(_quitButton, OnQuitButtonClicked, "Quit Button");
-
-        if (_showBrowserButton != null)
+        if (_showBrowserButton != null) // Keep separate if it has unique logic
         {
             _showBrowserButton.onClick.RemoveAllListeners();
             _showBrowserButton.onClick.AddListener(() => {
-                Debug.Log("Show Browser button clicked");
                 ShowPanel(_joinGamePanel);
-
-                if (_roomBrowserUI != null)
-                {
-                    _roomBrowserUI.ShowRoomBrowser();
-                }
-                else
-                {
-                    Debug.LogWarning("RoomBrowserUI reference is missing");
-                }
+                if (_roomBrowserUI != null) _roomBrowserUI.ShowRoomBrowser();
             });
-            Debug.Log("Show Browser button setup complete");
         }
 
         if (_directJoinButton != null)
         {
             _directJoinButton.onClick.RemoveAllListeners();
             _directJoinButton.onClick.AddListener(OnDirectJoinButtonClicked);
-            Debug.Log("Direct Join button setup complete");
         }
 
-        // Set up debug button
-        if (_debugButton != null)
-        {
-            _debugButton.onClick.RemoveAllListeners();
-            _debugButton.onClick.AddListener(DebugRoomDiscovery);
-            Debug.Log("Debug button setup complete");
-        }
+        // Removed Debug Button setup
 
         // Host Panel-specific buttons
         if (_hostPanel != null)
         {
-            Button hostStartButton = _hostPanel.GetComponentInChildren<Button>();
+            // Find button more reliably, e.g., by name if multiple buttons exist
+            Button hostStartButton = _hostPanel.transform.Find("StartHostButton")?.GetComponent<Button>(); // Example name
+            if (hostStartButton == null) hostStartButton = _hostPanel.GetComponentInChildren<Button>(); // Fallback
+
             if (hostStartButton != null)
             {
                 hostStartButton.onClick.RemoveAllListeners();
                 hostStartButton.onClick.AddListener(OnHostGameStartClicked);
-                Debug.Log("Host Start button setup complete");
             }
         }
 
@@ -182,26 +153,7 @@ public class MainMenuUI : MonoBehaviour
         // Set up back buttons
         SetupBackButtons();
 
-        Debug.Log("MainMenuUI initialization complete");
-
-        // Check for auto-actions from in-game menu
-        if (PlayerPrefs.HasKey("AutoHost"))
-        {
-            Debug.Log("Auto-Host flag detected, showing host panel");
-            PlayerPrefs.DeleteKey("AutoHost");
-            PlayerPrefs.Save();
-            ShowHostGamePanel();
-        }
-        else if (PlayerPrefs.HasKey("AutoJoin"))
-        {
-            Debug.Log("Auto-Join flag detected, showing join panel");
-            PlayerPrefs.DeleteKey("AutoJoin");
-            PlayerPrefs.Save();
-            if (_roomBrowserUI != null)
-                _roomBrowserUI.ShowRoomBrowser();
-            else
-                ShowPanel(_joinGamePanel);
-        }
+        // Removed Auto-actions check (assuming they were for debugging)
     }
 
     private void InitializeRegionDropdown()
@@ -209,41 +161,26 @@ public class MainMenuUI : MonoBehaviour
         if (_regionDropdown != null)
         {
             _regionDropdown.ClearOptions();
-            List<TMP_Dropdown.OptionData> options = new List<TMP_Dropdown.OptionData>();
-
-            foreach (var region in _regionCodes.Keys)
-            {
-                options.Add(new TMP_Dropdown.OptionData(region));
-            }
-
-            _regionDropdown.AddOptions(options);
+            _regionDropdown.AddOptions(_regionCodes.Keys.ToList());
             _regionDropdown.value = 0; // Default to "Auto (Best)"
-
-            Debug.Log("Region dropdown initialized with " + options.Count + " regions");
         }
     }
 
-    // Add this method to your MainMenuUI.cs
+    // Public method if needed by other scripts
     public void ShowHostGamePanel()
     {
         ShowPanel(_hostPanel);
     }
 
-    private void SetupButton(Button button, UnityEngine.Events.UnityAction action, string buttonName)
+    private void SetupButton(Button button, UnityEngine.Events.UnityAction action)
     {
         if (button != null)
         {
             button.onClick.RemoveAllListeners();
             button.onClick.AddListener(action);
-            Debug.Log($"{buttonName} setup complete");
-        }
-        else
-        {
-            Debug.LogWarning($"{buttonName} reference is missing");
         }
     }
 
-    // Public method to allow other scripts to show the main panel
     public void ShowMainPanel()
     {
         ShowPanel(_mainPanel);
@@ -251,13 +188,7 @@ public class MainMenuUI : MonoBehaviour
 
     public void ShowPanel(GameObject panelToShow)
     {
-        if (panelToShow == null)
-        {
-            Debug.LogError("ShowPanel called with NULL panel reference!");
-            return;
-        }
-
-        Debug.Log($"Showing panel: {panelToShow.name}");
+        if (panelToShow == null) return;
 
         // Disable all panels first
         if (_mainPanel != null) _mainPanel.SetActive(false);
@@ -268,107 +199,78 @@ public class MainMenuUI : MonoBehaviour
 
         // Then enable the requested panel
         panelToShow.SetActive(true);
-
-        // Verify it worked
-        Debug.Log($"Panel {panelToShow.name} active state: {panelToShow.activeSelf}");
     }
 
     private async void OnHostGameStartClicked()
     {
-        Debug.Log("Host Game Start button clicked");
-
-        // Save player name
-        SavePlayerName();
-
-        // Show loading UI
-        ShowLoadingUI("Starting host...");
-
-        // Get session name
-        string sessionName = _defaultSessionName;
-        if (_sessionNameInput != null && !string.IsNullOrEmpty(_sessionNameInput.text))
+        if (_networkRunnerHandler == null)
         {
-            sessionName = _sessionNameInput.text;
+            ShowStatusMessage("Network Error. Cannot host.", true);
+            return; // Don't proceed if network handler isn't ready
         }
 
-        // Get selected region
-        string selectedRegion = "best";
-        if (_regionDropdown != null && _regionDropdown.value >= 0)
+        SavePlayerName();
+        ShowLoadingUI("Starting host...");
+
+        string sessionName = (_sessionNameInput != null && !string.IsNullOrEmpty(_sessionNameInput.text))
+            ? _sessionNameInput.text : _defaultSessionName;
+
+        string selectedRegion = "best"; // Default
+        if (_regionDropdown != null && _regionDropdown.value >= 0 && _regionDropdown.value < _regionCodes.Count)
         {
             selectedRegion = _regionCodes.ElementAt(_regionDropdown.value).Value;
-            Debug.Log($"Selected region: {selectedRegion}");
         }
 
         // Start host using the updated method with region
-        if (_networkRunnerHandler != null)
-        {
-            await _networkRunnerHandler.StartHostGame(sessionName, selectedRegion, _useAllRegions);
-        }
-        else
-        {
-            Debug.LogError("Cannot start host - NetworkRunnerHandler is null");
-            // Try to recover by getting the instance
-            _networkRunnerHandler = NetworkRunnerHandler.GetInstance();
+        await _networkRunnerHandler.StartHostGame(sessionName, selectedRegion, _useAllRegions);
 
-            if (_networkRunnerHandler != null)
-            {
-                await _networkRunnerHandler.StartHostGame(sessionName, selectedRegion, _useAllRegions);
-            }
-            else
-            {
-                // Return to main panel if failed
-                ShowPanel(_mainPanel);
-            }
+        // If StartHostGame fails, the runner might shut down, triggering scene change back here.
+        // We might need a check here if the runner is still running after await.
+        if (_networkRunnerHandler.Runner == null || !_networkRunnerHandler.Runner.IsRunning)
+        {
+            ShowStatusMessage("Failed to start host.", true); // Show persistent error
+            await Task.Delay(2000); // Give user time to see error
+            ShowPanel(_mainPanel); // Return to main panel
         }
     }
 
     private async void OnDirectJoinButtonClicked()
     {
-        Debug.Log("Direct join button clicked");
+        if (_networkRunnerHandler == null)
+        {
+            ShowStatusMessage("Network Error. Cannot join.", true);
+            return;
+        }
 
-        // Save player name
         SavePlayerName();
-
-        // Show loading UI
         ShowLoadingUI("Joining game by code...");
 
-        // Get room code (hash)
-        string roomCode = string.Empty;
-        if (_roomCodeInput != null && !string.IsNullOrEmpty(_roomCodeInput.text))
-        {
-            roomCode = _roomCodeInput.text.Trim();
-        }
+        string roomCode = (_roomCodeInput != null && !string.IsNullOrEmpty(_roomCodeInput.text))
+            ? _roomCodeInput.text.Trim() : string.Empty;
 
         if (string.IsNullOrEmpty(roomCode))
         {
-            // Show error and return to main menu
-            ShowLoadingUI("Invalid room code. Please try again.");
-            await Task.Delay(2000); // Wait 2 seconds to show error
-            ShowPanel(_mainPanel);
+            ShowStatusMessage("Invalid room code. Please try again.", false); // Show temporary error
+            await Task.Delay(2000);
+            ShowPanel(_joinGamePanel); // Return to join panel
             return;
         }
 
         // Join game by hash
-        if (_networkRunnerHandler != null)
+        await _networkRunnerHandler.StartClientGameByHash(roomCode);
+
+        // Similar to host, check if join failed
+        if (_networkRunnerHandler.Runner == null || !_networkRunnerHandler.Runner.IsRunning)
         {
-            await _networkRunnerHandler.StartClientGameByHash(roomCode);
-        }
-        else
-        {
-            Debug.LogError("Cannot join by hash - NetworkRunnerHandler is null");
-            // Return to main panel if failed
-            ShowPanel(_mainPanel);
+            ShowStatusMessage("Failed to join game with that code.", false); // Show temporary error
+            await Task.Delay(2000);
+            ShowPanel(_joinGamePanel); // Return to join panel
         }
     }
 
     private void OnQuitButtonClicked()
     {
-        Debug.Log("Quit button clicked");
-
-#if UNITY_EDITOR
-        UnityEditor.EditorApplication.isPlaying = false;
-#else
         Application.Quit();
-#endif
     }
 
     private void SavePlayerName()
@@ -383,69 +285,46 @@ public class MainMenuUI : MonoBehaviour
     private void ShowLoadingUI(string statusMessage)
     {
         ShowPanel(_loadingPanel);
+        ShowStatusMessage(statusMessage, true); // Keep loading message visible
+    }
 
+    private void ShowStatusMessage(string message, bool persistent)
+    {
         if (_statusText != null)
         {
-            _statusText.text = statusMessage;
+            _statusText.text = message;
+            _statusText.gameObject.SetActive(true);
+            StopAllCoroutines(); // Stop previous hide coroutine if running
+            if (!persistent)
+            {
+                StartCoroutine(HideStatusAfterDelay(3f)); // Hide after 3 seconds if not persistent
+            }
         }
     }
 
-    // Add this to set up all back buttons
     private void SetupBackButtons()
     {
-        // Find and set up all back buttons
-        SetupBackButton(_hostPanel, "HostPanel");
-        SetupBackButton(_settingsPanel, "SettingsPanel");
-        // Note: JoinGamePanel's back button is handled by RoomBrowserUI
+        SetupBackButton(_hostPanel);
+        SetupBackButton(_settingsPanel);
+        // JoinGamePanel back button might be part of RoomBrowserUI
+        Button joinBack = _joinGamePanel?.transform.Find("Back")?.GetComponent<Button>();
+        if (joinBack != null && (_roomBrowserUI == null || _roomBrowserUI.enabled == false)) // Only set up if RoomBrowser doesn't handle it
+        {
+            SetupButton(joinBack, () => ShowPanel(_mainPanel));
+        }
     }
 
-    private void SetupBackButton(GameObject panel, string panelName)
+    private void SetupBackButton(GameObject panel)
     {
         if (panel == null) return;
-
-        // Find the back button within this panel
-        Button backButton = panel.transform.Find("Back")?.GetComponent<Button>();
-
+        Button backButton = panel.transform.Find("Back")?.GetComponent<Button>(); // Assuming name is "Back"
         if (backButton != null)
         {
-            backButton.onClick.RemoveAllListeners();
-            backButton.onClick.AddListener(() => OnBackButtonClicked(panelName));
-            Debug.Log($"Back button for {panelName} set up");
-        }
-        else
-        {
-            Debug.LogWarning($"Back button for {panelName} not found");
+            SetupButton(backButton, () => ShowPanel(_mainPanel));
         }
     }
 
-    // Add this method to handle back button clicks from any panel
-    public void OnBackButtonClicked(string fromPanel)
-    {
-        Debug.Log($"Back button clicked from {fromPanel}");
-        ShowPanel(_mainPanel);  // Return to main panel
-    }
-
-    // Debug function for room discovery
-    public void DebugRoomDiscovery()
-    {
-        if (_networkRunnerHandler == null)
-        {
-            Debug.LogError("Cannot debug - NetworkRunnerHandler is null");
-            return;
-        }
-
-        Debug.Log("Triggering room discovery debug");
-        _networkRunnerHandler.DebugRoomDiscovery();
-
-        // Show feedback to user
-        if (_statusText != null)
-        {
-            string currentPanel = _mainPanel.activeSelf ? "main menu" : "current panel";
-            _statusText.text = "Debug info printed to console.\nCheck logs for details.";
-            _statusText.gameObject.SetActive(true);
-            StartCoroutine(HideStatusAfterDelay(3f));
-        }
-    }
+    // Removed DebugRoomDiscovery method
 
     private System.Collections.IEnumerator HideStatusAfterDelay(float delay)
     {

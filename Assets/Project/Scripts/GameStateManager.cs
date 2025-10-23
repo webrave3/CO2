@@ -15,21 +15,14 @@ public class GameStateManager : NetworkBehaviour
     [Networked]
     public GameState State { get; set; } = GameState.Playing;
 
-    // Singleton pattern 
+    // Singleton pattern
     public static GameStateManager Instance { get; private set; }
 
     // Session information
-    [Networked]
-    public NetworkString<_32> SessionDisplayName { get; set; }
-
-    [Networked]
-    public NetworkString<_64> SessionID { get; set; }
-
-    [Networked]
-    public NetworkString<_16> SessionHash { get; set; }
-
-    [Networked]
-    public int SessionStartTime { get; set; }  // Changed from NetworkInt to int
+    [Networked] public NetworkString<_32> SessionDisplayName { get; set; }
+    [Networked] public NetworkString<_64> SessionID { get; set; }
+    [Networked] public NetworkString<_16> SessionHash { get; set; }
+    [Networked] public int SessionStartTime { get; set; }
 
     // Player ready status
     [Networked]
@@ -42,18 +35,13 @@ public class GameStateManager : NetworkBehaviour
             Destroy(gameObject);
             return;
         }
-
         Instance = this;
-        UnityEngine.Debug.Log("GameStateManager initialized");
     }
 
     public override void Spawned()
     {
-        UnityEngine.Debug.Log($"GameStateManager spawned - HasStateAuthority: {Object.HasStateAuthority}");
-
         if (Object.HasStateAuthority)
         {
-            // Get session info from NetworkRunnerHandler
             NetworkRunnerHandler runnerHandler = FindObjectOfType<NetworkRunnerHandler>();
             if (runnerHandler != null)
             {
@@ -61,53 +49,49 @@ public class GameStateManager : NetworkBehaviour
                 SessionID = runnerHandler.SessionUniqueID;
                 SessionHash = runnerHandler.SessionHash;
                 SessionStartTime = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
-                UnityEngine.Debug.Log($"GameStateManager: Session info set - {SessionDisplayName} | {SessionID} | {SessionHash}");
-            }
-            else
-            {
-                UnityEngine.Debug.LogWarning("GameStateManager: Could not find NetworkRunnerHandler for session info");
             }
 
             // Start directly in playing state
             State = GameState.Playing;
-            UnityEngine.Debug.Log("Game started in Playing state");
+
+            // Initialize the dictionary if needed (Ensure called only once)
+            if (PlayersReady.Count == 0)
+            {
+                PlayersReady.Clear();
+            }
         }
 
-        // Initialize the dictionary if needed
-        if (PlayersReady.Count == 0 && Object.HasStateAuthority)
-        {
-            PlayersReady.Clear(); // Ensure it's empty
-            UnityEngine.Debug.Log("Initialized PlayersReady dictionary");
-        }
-
-        // Broadcast initial state
-        OnGameStateChanged();
+        // Broadcast initial state change effects if necessary
+        HandleGameStateChangeEffects();
     }
 
-    // Manual state change notification method
-    public void OnGameStateChanged()
+    // This method can be called manually or hooked into a change detector if needed
+    private void HandleGameStateChangeEffects()
     {
-        UnityEngine.Debug.Log($"Game state changed to: {State}");
-
-        // Handle state transition logic here
+        // Example: Enable/disable certain UI, start/stop timers, etc.
         switch (State)
         {
             case GameState.Playing:
-                UnityEngine.Debug.Log("Game is now in Playing state");
+                // Logic for when the game enters Playing state
                 break;
             case GameState.GameOver:
-                UnityEngine.Debug.Log("Game Over");
+                // Logic for Game Over
                 break;
         }
     }
+
+    // Callback for when the State property changes (Fusion automatically calls this)
+    public override void Render()
+    {
+        // If you need to react *immediately* visually when the state changes on clients,
+        // you might check for changes here. However, for most logic, reacting in Spawned
+        // or using change detection might be better.
+    }
+
 
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     public void RPC_SetPlayerReady(PlayerRef player, bool isReady)
     {
-        UnityEngine.Debug.Log($"RPC_SetPlayerReady called for player {player}, ready: {isReady}");
-
-        // Make sure this only executes on the State Authority (server)
         if (!Object.HasStateAuthority) return;
 
         if (PlayersReady.ContainsKey(player))
@@ -124,8 +108,7 @@ public class GameStateManager : NetworkBehaviour
 
     private void CheckAllPlayersReady()
     {
-        if (!Object.HasStateAuthority)
-            return;
+        if (!Object.HasStateAuthority) return;
 
         bool allReady = true;
         foreach (var kvp in PlayersReady)
@@ -137,58 +120,20 @@ public class GameStateManager : NetworkBehaviour
             }
         }
 
-        // If we have at least 1 player and all are ready, we could auto-start
+        // If we have at least 1 player and all are ready, trigger game start logic
         if (allReady && PlayersReady.Count > 0)
         {
-            UnityEngine.Debug.Log("All players ready");
+            // Optional: Auto-start game logic or enable start button for host
         }
     }
 
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     public void RPC_StartGame()
     {
-        UnityEngine.Debug.Log("RPC_StartGame called");
-
-        // Make sure this only executes on the State Authority (server)
         if (!Object.HasStateAuthority) return;
 
         State = GameState.Playing;
-        OnGameStateChanged();
-    }
-
-    // Test function - can be called from anywhere to verify state
-    public void PrintCurrentState()
-    {
-        UnityEngine.Debug.LogWarning($"CURRENT GAME STATE: {State}, Instance ID: {GetInstanceID()}");
-        UnityEngine.Debug.LogWarning($"SESSION INFO: Name={SessionDisplayName}, ID={SessionID}, Hash={SessionHash}");
-
-        // Print all player ready states - check Count instead of null
-        UnityEngine.Debug.Log($"Players ready status ({PlayersReady.Count} players):");
-        if (PlayersReady.Count > 0)
-        {
-            foreach (var kvp in PlayersReady)
-            {
-                UnityEngine.Debug.Log($"  Player {kvp.Key}: {(kvp.Value ? "READY" : "NOT READY")}");
-            }
-        }
-        else
-        {
-            UnityEngine.Debug.Log("  No players have registered ready status yet");
-        }
-    }
-
-    // Direct force change to Playing state - for testing only
-    public void ForcePlayingState()
-    {
-        if (Object.HasStateAuthority)
-        {
-            UnityEngine.Debug.LogWarning("FORCING GAME STATE TO PLAYING");
-            State = GameState.Playing;
-            OnGameStateChanged();
-        }
-        else
-        {
-            UnityEngine.Debug.LogError("Cannot force state change - not state authority");
-        }
+        // The change detector or Render method should handle the effects
+        // Or call HandleGameStateChangeEffects() explicitly if needed immediately
     }
 }

@@ -1,4 +1,3 @@
-// Create a new script called RoomCodeDisplay.cs
 using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
@@ -10,6 +9,7 @@ public class RoomCodeDisplay : MonoBehaviour
     [SerializeField] private Button _copyButton;
 
     private NetworkRunnerHandler _networkRunnerHandler;
+    private Coroutine _feedbackCoroutine;
 
     private void Start()
     {
@@ -18,8 +18,9 @@ public class RoomCodeDisplay : MonoBehaviour
         if (_copyButton != null)
             _copyButton.onClick.AddListener(CopyRoomCode);
 
-        // Start periodic updates
-        InvokeRepeating("UpdateRoomCodeDisplay", 0.5f, 1.0f);
+        // Update display periodically or when network state changes
+        // Using InvokeRepeating is simple, but event-driven updates are better if possible
+        InvokeRepeating(nameof(UpdateRoomCodeDisplay), 0.5f, 1.0f);
     }
 
     private void UpdateRoomCodeDisplay()
@@ -27,14 +28,18 @@ public class RoomCodeDisplay : MonoBehaviour
         if (_roomCodeText == null || _networkRunnerHandler == null)
             return;
 
-        if (_networkRunnerHandler.Runner != null && _networkRunnerHandler.Runner.IsRunning &&
+        // Display code only if Runner exists, is running, and hash is available
+        if (_networkRunnerHandler.Runner != null &&
+            _networkRunnerHandler.Runner.IsRunning &&
             !string.IsNullOrEmpty(_networkRunnerHandler.SessionHash))
         {
-            _roomCodeText.text = $"Room Code: {_networkRunnerHandler.SessionHash}";
+            _roomCodeText.text = $"Code: {_networkRunnerHandler.SessionHash}";
+            if (_copyButton != null) _copyButton.interactable = true;
         }
         else
         {
-            _roomCodeText.text = "Waiting for room code...";
+            _roomCodeText.text = "No Room Code";
+            if (_copyButton != null) _copyButton.interactable = false;
         }
     }
 
@@ -44,17 +49,35 @@ public class RoomCodeDisplay : MonoBehaviour
         {
             GUIUtility.systemCopyBuffer = _networkRunnerHandler.SessionHash;
 
-            StartCoroutine(ShowCopiedFeedback());
+            // Stop previous feedback if running
+            if (_feedbackCoroutine != null) StopCoroutine(_feedbackCoroutine);
+            _feedbackCoroutine = StartCoroutine(ShowCopiedFeedback());
         }
     }
 
     private IEnumerator ShowCopiedFeedback()
     {
-        string originalText = _roomCodeText.text;
-        _roomCodeText.text = "Copied to clipboard!";
+        if (_roomCodeText == null) yield break; // Need text element for feedback
 
-        yield return new WaitForSeconds(1.0f);
+        string originalText = _roomCodeText.text; // Store current text
+        Color originalColor = _roomCodeText.color;
+        _roomCodeText.text = "Copied!";
+        _roomCodeText.color = Color.green; // Example feedback color
 
-        _roomCodeText.text = originalText;
+        yield return new WaitForSeconds(1.5f);
+
+        // Restore only if the code hasn't changed in the meantime
+        if (_roomCodeText.text == "Copied!")
+        {
+            UpdateRoomCodeDisplay(); // Refresh to current code
+            _roomCodeText.color = originalColor;
+        }
+        _feedbackCoroutine = null;
+    }
+
+    private void OnDestroy()
+    {
+        CancelInvoke(nameof(UpdateRoomCodeDisplay));
+        if (_copyButton != null) _copyButton.onClick.RemoveListener(CopyRoomCode);
     }
 }

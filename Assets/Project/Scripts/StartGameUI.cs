@@ -4,51 +4,54 @@ using System;
 
 public class StartGameUI : MonoBehaviour
 {
-    public static event Action OnCreateGame;
-    public static event Action OnJoinGame;
+    // Events to notify other systems (like MainMenuUI) about button clicks
+    public static event Action OnCreateGameRequest; // Renamed for clarity
+    public static event Action OnJoinGameRequest;   // Renamed for clarity
 
     [SerializeField] private Button _createButton;
     [SerializeField] private Button _joinButton;
-    [SerializeField] private GameObject _menuPanel;
+    [SerializeField] private GameObject _menuPanel; // Panel containing these buttons
 
     private void Awake()
     {
-        Debug.Log("StartGameUI Awake");
+        // Add listeners
+        if (_createButton != null)
+            _createButton.onClick.AddListener(HandleCreateClick);
+        if (_joinButton != null)
+            _joinButton.onClick.AddListener(HandleJoinClick);
+    }
 
-        if (_createButton == null)
-        {
-            Debug.LogError("Create Button not assigned in StartGameUI");
-        }
+    private void HandleCreateClick()
+    {
+        OnCreateGameRequest?.Invoke(); // Trigger the event
+        if (_menuPanel != null)
+            _menuPanel.SetActive(false); // Hide this panel after clicking
+    }
 
-        if (_joinButton == null)
-        {
-            Debug.LogError("Join Button not assigned in StartGameUI");
-        }
-
-        if (_menuPanel == null)
-        {
-            Debug.LogError("Menu Panel not assigned in StartGameUI");
-        }
-
-        _createButton.onClick.AddListener(() => {
-            Debug.Log("Create Game button clicked");
-            OnCreateGame?.Invoke();
-            _menuPanel.SetActive(false);
-        });
-
-        _joinButton.onClick.AddListener(() => {
-            Debug.Log("Join Game button clicked");
-            OnJoinGame?.Invoke();
-            _menuPanel.SetActive(false);
-        });
+    private void HandleJoinClick()
+    {
+        OnJoinGameRequest?.Invoke(); // Trigger the event
+        if (_menuPanel != null)
+            _menuPanel.SetActive(false); // Hide this panel after clicking
     }
 
     private void OnDestroy()
     {
+        // Clean up listeners
         if (_createButton != null)
-            _createButton.onClick.RemoveAllListeners();
-
+            _createButton.onClick.RemoveListener(HandleCreateClick);
         if (_joinButton != null)
-            _joinButton.onClick.RemoveAllListeners();
+            _joinButton.onClick.RemoveListener(HandleJoinClick);
+    }
+
+    // Optional: Methods to show/hide the panel containing these buttons
+    public void Show()
+    {
+        if (_menuPanel != null) _menuPanel.SetActive(true);
+    }
+
+    public void Hide()
+    {
+        if (_menuPanel != null) _menuPanel.SetActive(false);
     }
 }

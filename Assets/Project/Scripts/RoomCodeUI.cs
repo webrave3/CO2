@@ -2,7 +2,7 @@ using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
 using System.Collections;
-using System.Diagnostics;
+// Removed: using System.Diagnostics; // Not needed without Debug
 
 public class RoomCodeUI : MonoBehaviour
 {
@@ -21,70 +21,55 @@ public class RoomCodeUI : MonoBehaviour
 
     private NetworkRunnerHandler _networkRunnerHandler;
     private bool _isJoining = false;
+    private Coroutine _feedbackCoroutine;
+    private Coroutine _errorCoroutine;
 
     private void Awake()
     {
-        // Hide error message and joining indicator initially
-        if (_errorMessageText != null)
-            _errorMessageText.gameObject.SetActive(false);
-
-        if (_joiningIndicator != null)
-            _joiningIndicator.SetActive(false);
+        if (_errorMessageText != null) _errorMessageText.gameObject.SetActive(false);
+        if (_joiningIndicator != null) _joiningIndicator.SetActive(false);
     }
 
     private void Start()
     {
         _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>();
-
-        if (_copyCodeButton != null)
+        // Add null check for safety
+        if (_networkRunnerHandler == null)
         {
-            _copyCodeButton.onClick.AddListener(CopyRoomCodeToClipboard);
+            // Disable UI or show an error if handler is critical
+            if (_roomCodeDisplay != null) _roomCodeDisplay.text = "Network Error";
+            if (_copyCodeButton != null) _copyCodeButton.interactable = false;
+            if (_joinButton != null) _joinButton.interactable = false;
+            if (_roomCodeInput != null) _roomCodeInput.interactable = false;
+            return;
         }
 
-        if (_joinButton != null)
-        {
-            _joinButton.onClick.AddListener(JoinRoomByCode);
-        }
 
-        // Update room code display if hosting
+        if (_copyCodeButton != null) _copyCodeButton.onClick.AddListener(CopyRoomCodeToClipboard);
+        if (_joinButton != null) _joinButton.onClick.AddListener(JoinRoomByCode);
+
+        // Initial update
         UpdateRoomCodeDisplay();
     }
 
+    // Called periodically or on state change
     private void UpdateRoomCodeDisplay()
     {
-        if (_roomCodeDisplay != null && _networkRunnerHandler != null)
-        {
-            if (!string.IsNullOrEmpty(_networkRunnerHandler.SessionHash))
-            {
-                _roomCodeDisplay.text = FormatRoomCodeForDisplay(_networkRunnerHandler.SessionHash);
-            }
-            else
-            {
-                _roomCodeDisplay.text = "No active session";
-            }
-        }
+        if (_roomCodeDisplay == null || _networkRunnerHandler == null) return;
+
+        bool hasCode = _networkRunnerHandler.Runner != null &&
+                       _networkRunnerHandler.Runner.IsRunning &&
+                       !string.IsNullOrEmpty(_networkRunnerHandler.SessionHash);
+
+        _roomCodeDisplay.text = hasCode ? FormatRoomCodeForDisplay(_networkRunnerHandler.SessionHash) : "No Session";
+        if (_copyCodeButton != null) _copyCodeButton.interactable = hasCode;
     }
 
     private string FormatRoomCodeForDisplay(string code)
     {
-        // Format room code for better readability
-        // This can be customized based on your preference
-
-        // Option 1: Keep as is for CamelCase (e.g., "RedWolf")
+        // Example: Keep CamelCase like "RedWolf"
         return code;
-
-        // Option 2: Add a space between words
-        // Find the position where second word begins (capital letter)
-        /*
-        for (int i = 1; i < code.Length; i++)
-        {
-            if (char.IsUpper(code[i]))
-            {
-                return code.Substring(0, i) + " " + code.Substring(i);
-            }
-        }
-        return code;
-        */
+        // Or add space: return System.Text.RegularExpressions.Regex.Replace(code, "([A-Z])", " $1").Trim();
     }
 
     private void CopyRoomCodeToClipboard()
@@ -92,121 +77,90 @@ public class RoomCodeUI : MonoBehaviour
         if (_networkRunnerHandler != null && !string.IsNullOrEmpty(_networkRunnerHandler.SessionHash))
         {
             GUIUtility.systemCopyBuffer = _networkRunnerHandler.SessionHash;
-            UnityEngine.Debug.Log("Room code copied to clipboard: " + _networkRunnerHandler.SessionHash);
-
-            // Show feedback to user
-            StartCoroutine(ShowCopiedFeedback());
+            if (_feedbackCoroutine != null) StopCoroutine(_feedbackCoroutine);
+            _feedbackCoroutine = StartCoroutine(ShowCopiedFeedback());
         }
     }
 
     private IEnumerator ShowCopiedFeedback()
     {
-        // This is a simple example - expand with proper UI feedback
+        if (_roomCodeDisplay == null) yield break;
         string originalText = _roomCodeDisplay.text;
         _roomCodeDisplay.text = "Copied!";
-
-        yield return new WaitForSeconds(1.0f);
-
-        _roomCodeDisplay.text = originalText;
+        yield return new WaitForSeconds(1.5f);
+        // Restore only if text wasn't updated by something else
+        if (_roomCodeDisplay.text == "Copied!") _roomCodeDisplay.text = originalText;
+        _feedbackCoroutine = null;
     }
 
     private async void JoinRoomByCode()
     {
-        if (_isJoining) return;
+        if (_isJoining || _networkRunnerHandler == null || _roomCodeInput == null) return;
 
-        if (_networkRunnerHandler != null && _roomCodeInput != null)
+        string roomCode = _roomCodeInput.text.Trim();
+        if (string.IsNullOrEmpty(roomCode))
         {
-            string roomCode = _roomCodeInput.text.Trim();
+            ShowErrorMessage("Please enter a room code");
+            return;
+        }
 
-            if (string.IsNullOrEmpty(roomCode))
-            {
-                ShowErrorMessage("Please enter a room code");
-                return;
-            }
+        roomCode = FormatRoomCodeInput(roomCode); // Clean up user input
 
-            // Format the code properly
-            roomCode = FormatRoomCode(roomCode);
+        _isJoining = true;
+        if (_joiningIndicator != null) _joiningIndicator.SetActive(true);
+        if (_joinButton != null) _joinButton.interactable = false;
+        if (_errorMessageText != null) _errorMessageText.gameObject.SetActive(false); // Hide previous errors
 
-            // Show joining indicator
-            _isJoining = true;
-            if (_joiningIndicator != null)
-                _joiningIndicator.SetActive(true);
-
-            if (_joinButton != null)
-                _joinButton.interactable = false;
-
-            // Try to join
-            UnityEngine.Debug.Log($"Attempting to join room with code: {roomCode}");
+        try
+        {
             await _networkRunnerHandler.StartClientGameByHash(roomCode);
 
-            // If we get here and the runner is not in a game, the join failed
-            if (_networkRunnerHandler.Runner == null || !_networkRunnerHandler.Runner.IsRunning ||
-                string.IsNullOrEmpty(_networkRunnerHandler.SessionUniqueID))
+            // Check if join succeeded after a short delay (scene change handles success)
+            await System.Threading.Tasks.Task.Delay(1000); // Wait 1 second
+
+            if (_isJoining && // Still in joining state?
+                (_networkRunnerHandler.Runner == null || !_networkRunnerHandler.Runner.IsRunning || string.IsNullOrEmpty(_networkRunnerHandler.SessionUniqueID)))
             {
-                ShowErrorMessage("Could not find a game with that code");
-
-                // Hide joining indicator
-                if (_joiningIndicator != null)
-                    _joiningIndicator.SetActive(false);
-
-                if (_joinButton != null)
-                    _joinButton.interactable = true;
+                ShowErrorMessage("Could not find or join game with that code");
+                ResetJoiningUI();
             }
-
-            _isJoining = false;
+            else if (_isJoining)
+            {
+                // Connected or scene changed, just reset UI state silently
+                ResetJoiningUI();
+            }
+        }
+        catch (System.Exception ex) // Catch potential exceptions during StartClientGameByHash
+        {
+            ShowErrorMessage($"Error joining: {ex.Message}");
+            ResetJoiningUI();
         }
     }
 
-    private string FormatRoomCode(string input)
+    private void ResetJoiningUI()
     {
-        // Remove all spaces and special characters
+        _isJoining = false;
+        if (_joiningIndicator != null) _joiningIndicator.SetActive(false);
+        if (_joinButton != null) _joinButton.interactable = true;
+    }
+
+    private string FormatRoomCodeInput(string input)
+    {
+        // Basic cleanup: Remove spaces and ensure PascalCase (e.g., "red wolf" -> "RedWolf")
         string cleanInput = "";
+        bool capitalizeNext = true;
         foreach (char c in input)
         {
             if (char.IsLetterOrDigit(c))
-                cleanInput += c;
-        }
-
-        // Check if we need to fix capitalization
-        // If the user typed something like "redwolf", convert to "RedWolf"
-        if (cleanInput.Length > 0)
-        {
-            // First, make sure the first letter is capitalized
-            cleanInput = char.ToUpper(cleanInput[0]) + cleanInput.Substring(1);
-
-            // Now try to find where the second word might begin
-            bool foundSecondWord = false;
-            for (int i = 1; i < cleanInput.Length; i++)
             {
-                if (char.IsUpper(cleanInput[i]))
-                {
-                    foundSecondWord = true;
-                    break;
-                }
+                cleanInput += capitalizeNext ? char.ToUpper(c) : c;
+                capitalizeNext = false;
             }
-
-            // If we didn't find a capital letter, try to guess where the second word begins
-            // This is a simple heuristic and might need to be refined based on your word lists
-            if (!foundSecondWord && cleanInput.Length > 3)
+            else if (char.IsWhiteSpace(c)) // Capitalize after space
             {
-                // Look for common adjective endings
-                string[] commonEndings = new[] { "ed", "en", "er", "le", "ow", "py", "ry", "ty" };
-                foreach (string ending in commonEndings)
-                {
-                    int pos = cleanInput.IndexOf(ending);
-                    if (pos > 0 && pos + ending.Length < cleanInput.Length)
-                    {
-                        // Capitalize the letter after the ending
-                        int newWordPos = pos + ending.Length;
-                        cleanInput = cleanInput.Substring(0, newWordPos) +
-                                    char.ToUpper(cleanInput[newWordPos]) +
-                                    cleanInput.Substring(newWordPos + 1);
-                        break;
-                    }
-                }
+                capitalizeNext = true;
             }
         }
-
         return cleanInput;
     }
 
@@ -216,30 +170,37 @@ public class RoomCodeUI : MonoBehaviour
         {
             _errorMessageText.text = message;
             _errorMessageText.gameObject.SetActive(true);
-
-            // Hide the error message after a delay
-            StartCoroutine(HideErrorAfterDelay());
+            if (_errorCoroutine != null) StopCoroutine(_errorCoroutine);
+            _errorCoroutine = StartCoroutine(HideErrorAfterDelay());
         }
     }
 
     private IEnumerator HideErrorAfterDelay()
     {
         yield return new WaitForSeconds(_errorMessageDuration);
-
-        if (_errorMessageText != null)
-            _errorMessageText.gameObject.SetActive(false);
+        if (_errorMessageText != null) _errorMessageText.gameObject.SetActive(false);
+        _errorCoroutine = null;
     }
 
-    // Called on each frame to update the UI based on the network state
+    // Update display if running as host
     private void Update()
     {
-        // If we're on the host's side, update the room code display
         if (_networkRunnerHandler != null &&
             _networkRunnerHandler.Runner != null &&
-            _networkRunnerHandler.Runner.IsServer &&
-            _roomCodeDisplay != null)
+            _networkRunnerHandler.Runner.IsServer)
         {
-            UpdateRoomCodeDisplay();
+            // Update display less frequently if needed
+            if (Time.frameCount % 30 == 0) // Example: Update twice per second
+                UpdateRoomCodeDisplay();
         }
+    }
+
+    private void OnDestroy()
+    {
+        if (_copyCodeButton != null) _copyCodeButton.onClick.RemoveListener(CopyRoomCodeToClipboard);
+        if (_joinButton != null) _joinButton.onClick.RemoveListener(JoinRoomByCode);
+        // Stop coroutines
+        if (_feedbackCoroutine != null) StopCoroutine(_feedbackCoroutine);
+        if (_errorCoroutine != null) StopCoroutine(_errorCoroutine);
     }
 }

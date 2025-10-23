@@ -341,6 +341,10 @@ PrefabInstance:
       value: NetworkRunner
       objectReference: {fileID: 0}
     - target: {fileID: 6432980217168046443, guid: ab236c45ad85cc349a90534d43fc5131, type: 3}
+      propertyPath: _debugIncludeSelfHostedSessions
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6432980217168046443, guid: ab236c45ad85cc349a90534d43fc5131, type: 3}
       propertyPath: '_vehiclePrefab.RawGuidValue.Array.data[0]'
       value: -1989454322316735568
       objectReference: {fileID: 0}

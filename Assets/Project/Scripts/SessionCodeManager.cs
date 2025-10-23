@@ -6,7 +6,6 @@ using System.IO;
 
 public class SessionCodeManager : MonoBehaviour
 {
-    // Singleton pattern
     public static SessionCodeManager Instance { get; private set; }
 
     [Header("Word Lists")]
@@ -18,94 +17,80 @@ public class SessionCodeManager : MonoBehaviour
 
     [Header("Settings")]
     [SerializeField] private int _recycleTimeInMinutes = 30;
-    [SerializeField] private bool _debugMode = false;
+    // Removed: [SerializeField] private bool _debugMode = false;
 
-    // Runtime lists
     private List<string> _adjectives = new List<string>();
     private List<string> _nouns = new List<string>();
     private HashSet<string> _blacklistedCombinations = new HashSet<string>();
 
-    // Track active and recently used codes
     private Dictionary<string, SessionInfo> _activeSessions = new Dictionary<string, SessionInfo>();
     private Dictionary<string, DateTime> _recentlyUsedCodes = new Dictionary<string, DateTime>();
 
-    // Session info class to track internal data
     public class SessionInfo
     {
         public string RoomCode { get; set; }
-        public string InternalId { get; set; }
+        public string InternalId { get; set; } // Fusion uses this SessionName internally
         public DateTime CreationTime { get; set; }
     }
 
     private void Awake()
     {
-        // Implement singleton pattern
         if (Instance != null && Instance != this)
         {
             Destroy(gameObject);
             return;
         }
-
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
-        // Load word lists
         LoadWordLists();
-
-        // Load blacklist
         LoadBlacklist();
 
-        Debug.Log($"SessionCodeManager initialized with {_adjectives.Count} adjectives and {_nouns.Count} nouns");
-        Debug.Log($"Total possible combinations: {_adjectives.Count * _nouns.Count}");
+        // Optional log for initialization confirmation (can be removed)
+        // Debug.Log($"SessionCodeManager initialized: {_adjectives.Count} adj, {_nouns.Count} nouns.");
     }
+
+    private void Start()
+    {
+        // Start periodic cleanup
+        InvokeRepeating(nameof(CleanupExpiredCooldowns), 5 * 60, 5 * 60); // Run every 5 minutes
+    }
+
 
     private void LoadWordLists()
     {
-        // Load adjectives
-        if (_adjectivesFile != null)
+        _adjectives = LoadListFromFile(_adjectivesFile, new[] { "Red", "Blue", "Green" });
+        _nouns = LoadListFromFile(_nounsFile, new[] { "Wolf", "Tiger", "Eagle" });
+    }
+
+    private List<string> LoadListFromFile(TextAsset file, string[] defaults)
+    {
+        List<string> list = new List<string>();
+        if (file != null)
         {
-            string[] lines = _adjectivesFile.text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            string[] lines = file.text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
             foreach (string line in lines)
             {
                 string trimmed = line.Trim();
                 if (!string.IsNullOrEmpty(trimmed))
                 {
-                    // Capitalize first letter
-                    _adjectives.Add(char.ToUpper(trimmed[0]) + trimmed.Substring(1).ToLower());
+                    // Ensure PascalCase
+                    list.Add(char.ToUpper(trimmed[0]) + trimmed.Substring(1).ToLower());
                 }
             }
-        }
-        else
-        {
-            Debug.LogError("Adjectives file not assigned!");
-            // Add some defaults for testing
-            _adjectives.AddRange(new[] { "Red", "Blue", "Green", "Fast", "Slow", "Big", "Small" });
         }
 
-        // Load nouns
-        if (_nounsFile != null)
+        if (list.Count == 0)
         {
-            string[] lines = _nounsFile.text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            foreach (string line in lines)
-            {
-                string trimmed = line.Trim();
-                if (!string.IsNullOrEmpty(trimmed))
-                {
-                    // Capitalize first letter
-                    _nouns.Add(char.ToUpper(trimmed[0]) + trimmed.Substring(1).ToLower());
-                }
-            }
+            list.AddRange(defaults); // Use defaults if file loading failed or empty
         }
-        else
-        {
-            Debug.LogError("Nouns file not assigned!");
-            // Add some defaults for testing
-            _nouns.AddRange(new[] { "Wolf", "Tiger", "Eagle", "Mountain", "River", "Tree", "Stone" });
-        }
+        return list;
     }
+
 
     private void LoadBlacklist()
     {
+        _blacklistedCombinations.Clear();
         if (_blacklistedCombinationsFile != null)
         {
             string[] lines = _blacklistedCombinationsFile.text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
@@ -114,7 +99,7 @@ public class SessionCodeManager : MonoBehaviour
                 string trimmed = line.Trim();
                 if (!string.IsNullOrEmpty(trimmed))
                 {
-                    _blacklistedCombinations.Add(trimmed.ToLower());
+                    _blacklistedCombinations.Add(trimmed.ToLower()); // Store blacklist in lowercase
                 }
             }
         }
@@ -122,13 +107,9 @@ public class SessionCodeManager : MonoBehaviour
 
     public string GenerateNewSessionCode()
     {
-        // Create a new unique internal ID (GUID)
         string internalId = System.Guid.NewGuid().ToString();
-
-        // Generate a word-based room code
         string roomCode = GenerateUniqueWordCode();
 
-        // Store the mapping between room code and internal ID
         SessionInfo sessionInfo = new SessionInfo
         {
             RoomCode = roomCode,
@@ -136,92 +117,51 @@ public class SessionCodeManager : MonoBehaviour
             CreationTime = DateTime.UtcNow
         };
 
-        // Add to active sessions
         _activeSessions.Add(roomCode, sessionInfo);
-
-        Debug.Log($"Generated new session code: {roomCode} (Internal ID: {internalId})");
-
+        // Removed Debug Log
         return roomCode;
     }
 
     private string GenerateUniqueWordCode()
     {
-        int maxAttempts = 100; // Safety limit
-        int attempts = 0;
-
-        while (attempts < maxAttempts)
+        int maxAttempts = 100;
+        for (int attempts = 0; attempts < maxAttempts; attempts++)
         {
-            // Get random words
-            string adjective = GetRandomWord(_adjectives);
-            string noun = GetRandomWord(_nouns);
-
-            // Combine into room code
+            string adjective = _adjectives[UnityEngine.Random.Range(0, _adjectives.Count)];
+            string noun = _nouns[UnityEngine.Random.Range(0, _nouns.Count)];
             string roomCode = adjective + noun;
 
-            // Check if this combination is valid
-            if (IsValidCombination(adjective, noun, roomCode))
+            if (IsValidCombination(roomCode))
             {
                 return roomCode;
             }
-
-            attempts++;
         }
 
-        // If we couldn't find a valid combination after max attempts,
-        // fall back to a guaranteed unique code
-        string fallbackCode = "Random" + DateTime.UtcNow.Ticks.ToString().Substring(0, 6);
-        Debug.LogWarning($"Failed to generate unique word code after {maxAttempts} attempts. Using fallback: {fallbackCode}");
-        return fallbackCode;
+        // Fallback to GUID-based code if word generation fails
+        return "Session" + DateTime.UtcNow.Ticks.ToString().Substring(10);
     }
 
-    private string GetRandomWord(List<string> wordList)
+    private bool IsValidCombination(string combinedCode)
     {
-        int index = UnityEngine.Random.Range(0, wordList.Count);
-        return wordList[index];
-    }
+        // Check active sessions
+        if (_activeSessions.ContainsKey(combinedCode)) return false;
 
-    private bool IsValidCombination(string adjective, string noun, string combined)
-    {
-        // Check if this code is already active
-        if (_activeSessions.ContainsKey(combined))
+        // Check recently used (cooldown)
+        if (_recentlyUsedCodes.TryGetValue(combinedCode, out DateTime usageTime))
         {
-            if (_debugMode) Debug.Log($"Code '{combined}' is already active");
-            return false;
+            if (DateTime.UtcNow < usageTime.AddMinutes(_recycleTimeInMinutes)) return false;
+            _recentlyUsedCodes.Remove(combinedCode); // Cooldown expired, remove entry
         }
 
-        // Check if this code was recently used and is in cooldown
-        if (_recentlyUsedCodes.ContainsKey(combined))
-        {
-            DateTime recycleTime = _recentlyUsedCodes[combined].AddMinutes(_recycleTimeInMinutes);
-            if (DateTime.UtcNow < recycleTime)
-            {
-                if (_debugMode) Debug.Log($"Code '{combined}' is in cooldown until {recycleTime}");
-                return false;
-            }
+        // Check blacklist (case insensitive)
+        if (_blacklistedCombinations.Contains(combinedCode.ToLower())) return false;
 
-            // If cooldown period is over, remove from recently used
-            _recentlyUsedCodes.Remove(combined);
-            if (_debugMode) Debug.Log($"Code '{combined}' removed from cooldown");
-        }
-
-        // Check against blacklist (case insensitive)
-        if (_blacklistedCombinations.Contains(combined.ToLower()))
-        {
-            if (_debugMode) Debug.Log($"Code '{combined}' is blacklisted");
-            return false;
-        }
-
-        // All checks passed, this is a valid combination
         return true;
     }
 
     public string GetInternalId(string roomCode)
     {
-        if (_activeSessions.TryGetValue(roomCode, out SessionInfo sessionInfo))
-        {
-            return sessionInfo.InternalId;
-        }
-        return null;
+        return _activeSessions.TryGetValue(roomCode, out SessionInfo sessionInfo) ? sessionInfo.InternalId : null;
     }
 
     public bool IsValidSessionCode(string roomCode)
@@ -231,82 +171,50 @@ public class SessionCodeManager : MonoBehaviour
 
     public void EndSession(string roomCode)
     {
-        if (_activeSessions.TryGetValue(roomCode, out SessionInfo sessionInfo))
+        if (_activeSessions.Remove(roomCode)) // Remove returns true if successful
         {
-            // Move from active to recently used for cooldown
+            // Add to recently used for cooldown
             _recentlyUsedCodes[roomCode] = DateTime.UtcNow;
-
-            // Remove from active sessions
-            _activeSessions.Remove(roomCode);
-
-            Debug.Log($"Ended session: {roomCode} (Internal ID: {sessionInfo.InternalId})");
+            // Removed Debug Log
         }
     }
 
-    // Call this periodically to clean up expired cooldowns
     public void CleanupExpiredCooldowns()
     {
-        List<string> expiredCodes = new List<string>();
-
-        foreach (var kvp in _recentlyUsedCodes)
-        {
-            DateTime recycleTime = kvp.Value.AddMinutes(_recycleTimeInMinutes);
-            if (DateTime.UtcNow >= recycleTime)
-            {
-                expiredCodes.Add(kvp.Key);
-            }
-        }
+        List<string> expiredCodes = _recentlyUsedCodes
+            .Where(kvp => DateTime.UtcNow >= kvp.Value.AddMinutes(_recycleTimeInMinutes))
+            .Select(kvp => kvp.Key)
+            .ToList();
 
         foreach (string code in expiredCodes)
         {
             _recentlyUsedCodes.Remove(code);
         }
-
-        if (expiredCodes.Count > 0 && _debugMode)
-        {
-            Debug.Log($"Cleaned up {expiredCodes.Count} expired cooldowns");
-        }
+        // Removed Debug Log
     }
 
-    // Add this in Update or call on a timer
-    private void Update()
-    {
-        // Clean up expired cooldowns every 5 minutes
-        if (Time.frameCount % (300 * 60) == 0) // Roughly every 5 minutes at 60fps
-        {
-            CleanupExpiredCooldowns();
-        }
-    }
+    // --- Optional Blacklist Management ---
 
     public bool AddToBlacklist(string combination)
     {
         string lowercase = combination.ToLower();
-
-        if (_blacklistedCombinations.Contains(lowercase))
-            return false;
+        if (_blacklistedCombinations.Contains(lowercase)) return false; // Already blacklisted
 
         _blacklistedCombinations.Add(lowercase);
-
-        // If this combination is currently active, end the session
-        if (_activeSessions.ContainsKey(combination))
-        {
-            EndSession(combination);
-        }
-
-        Debug.Log($"Added combination to blacklist: {combination}");
+        if (_activeSessions.ContainsKey(combination)) EndSession(combination); // End if active
+        // Removed Debug Log
+        // Consider saving the blacklist here if persistence is needed immediately
+        // SaveBlacklist();
         return true;
     }
 
     public bool RemoveFromBlacklist(string combination)
     {
-        string lowercase = combination.ToLower();
-
-        if (!_blacklistedCombinations.Contains(lowercase))
-            return false;
-
-        _blacklistedCombinations.Remove(lowercase);
-        Debug.Log($"Removed combination from blacklist: {combination}");
-        return true;
+        bool removed = _blacklistedCombinations.Remove(combination.ToLower());
+        // if (removed) Debug.Log($"Removed from blacklist: {combination}"); // Optional log
+        // Consider saving blacklist changes
+        // if (removed) SaveBlacklist();
+        return removed;
     }
 
     public bool IsBlacklisted(string combination)
@@ -314,32 +222,29 @@ public class SessionCodeManager : MonoBehaviour
         return _blacklistedCombinations.Contains(combination.ToLower());
     }
 
-    // This will save the blacklist back to a file if needed
+    // Example of saving blacklist (call when needed, e.g., OnApplicationQuit or after adding/removing)
     public void SaveBlacklist()
     {
-        string path = Application.persistentDataPath + "/blacklist.txt";
-        File.WriteAllLines(path, _blacklistedCombinations);
-        Debug.Log($"Saved blacklist to {path}");
-    }
-
-    // Get session statistics for monitoring/debugging
-    public SessionStats GetSessionStats()
-    {
-        return new SessionStats
+        try
         {
-            ActiveSessionCount = _activeSessions.Count,
-            CooldownSessionCount = _recentlyUsedCodes.Count,
-            TotalWordCombinations = _adjectives.Count * _nouns.Count,
-            BlacklistedCombinations = _blacklistedCombinations.Count
-        };
+            // Prefer persistentDataPath for runtime saving
+            string path = Path.Combine(Application.persistentDataPath, "blacklist.txt");
+            File.WriteAllLines(path, _blacklistedCombinations);
+            // Debug.Log($"Saved blacklist to {path}"); // Optional log
+        }
+        catch (Exception ex)
+        {
+            // Handle file write error
+        }
     }
 
-    // Statistics class
-    public class SessionStats
+    // --- Statistics (Optional) ---
+    public class SessionStats { public int Active; public int Cooldown; public long Possible; public int Blacklisted; }
+    public SessionStats GetSessionStats() => new SessionStats
     {
-        public int ActiveSessionCount { get; set; }
-        public int CooldownSessionCount { get; set; }
-        public int TotalWordCombinations { get; set; }
-        public int BlacklistedCombinations { get; set; }
-    }
+        Active = _activeSessions.Count,
+        Cooldown = _recentlyUsedCodes.Count,
+        Possible = (long)_adjectives.Count * _nouns.Count,
+        Blacklisted = _blacklistedCombinations.Count
+    };
 }

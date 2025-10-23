@@ -17,14 +17,12 @@ public class BootstrapManager : MonoBehaviour
         // Singleton pattern
         if (_instance != null && _instance != this)
         {
-            Debug.LogWarning("[BootstrapManager] Multiple instances detected - destroying duplicate");
             Destroy(gameObject);
             return;
         }
 
         _instance = this;
         DontDestroyOnLoad(gameObject);
-        Debug.Log("[BootstrapManager] Bootstrap initialized as singleton");
 
         InitializeNetworkRunner();
 
@@ -39,7 +37,6 @@ public class BootstrapManager : MonoBehaviour
 
         if (_networkRunnerHandler != null)
         {
-            Debug.Log("[BootstrapManager] Found existing NetworkRunnerHandler in scene");
             DontDestroyOnLoad(_networkRunnerHandler.gameObject);
             return;
         }
@@ -47,7 +44,6 @@ public class BootstrapManager : MonoBehaviour
         // If not found, instantiate from prefab
         if (_networkRunnerPrefab != null)
         {
-            Debug.Log("[BootstrapManager] Creating NetworkRunnerHandler from prefab");
             GameObject networkRunnerObject = Instantiate(_networkRunnerPrefab);
 
             // Verify the prefab has the component
@@ -55,42 +51,44 @@ public class BootstrapManager : MonoBehaviour
 
             if (_networkRunnerHandler != null)
             {
-                Debug.Log("[BootstrapManager] NetworkRunnerHandler instantiated successfully");
                 DontDestroyOnLoad(networkRunnerObject);
             }
             else
             {
-                Debug.LogError("[BootstrapManager] NetworkRunnerPrefab does not have NetworkRunnerHandler component!");
+                // Fallback if component is missing on prefab
+                GameObject.Destroy(networkRunnerObject); // Destroy the incorrect instance
+                CreateBasicNetworkRunnerHandler();
             }
         }
         else
         {
-            // Last resort: create a new GameObject with the component
-            Debug.LogWarning("[BootstrapManager] NetworkRunnerPrefab not assigned, creating basic NetworkRunnerHandler");
-            GameObject networkRunnerObject = new GameObject("NetworkRunnerHandler");
-            _networkRunnerHandler = networkRunnerObject.AddComponent<NetworkRunnerHandler>();
-
-            // Add NetworkRunner component if needed
-            if (networkRunnerObject.GetComponent<NetworkRunner>() == null)
-                networkRunnerObject.AddComponent<NetworkRunner>();
-
-            DontDestroyOnLoad(networkRunnerObject);
-            Debug.Log("[BootstrapManager] Basic NetworkRunnerHandler created");
+            CreateBasicNetworkRunnerHandler();
         }
     }
+
+    private void CreateBasicNetworkRunnerHandler()
+    {
+        // Create a new GameObject with the component
+        GameObject networkRunnerObject = new GameObject("NetworkRunnerHandler");
+        _networkRunnerHandler = networkRunnerObject.AddComponent<NetworkRunnerHandler>();
+
+        // Add NetworkRunner component if needed
+        if (networkRunnerObject.GetComponent<NetworkRunner>() == null)
+            networkRunnerObject.AddComponent<NetworkRunner>();
+
+        DontDestroyOnLoad(networkRunnerObject);
+    }
+
 
     public NetworkRunnerHandler GetNetworkRunnerHandler()
     {
         if (_networkRunnerHandler == null)
         {
-            Debug.LogWarning("[BootstrapManager] GetNetworkRunnerHandler called but handler is null!");
-
             // Try to find it again as a fallback
             _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>();
 
             if (_networkRunnerHandler == null)
             {
-                Debug.LogError("[BootstrapManager] Critical error - NetworkRunnerHandler not found in any scene!");
                 // Re-initialize as last resort
                 InitializeNetworkRunner();
             }

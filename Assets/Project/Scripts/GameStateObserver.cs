@@ -5,7 +5,7 @@ using Fusion;
 public class GameStateObserver : MonoBehaviour
 {
     private GameStateManager _gameStateManager;
-    private GameState _lastObservedState;
+    private GameState _lastObservedState = GameState.MainMenu; // Initialize to a default
 
     private void Start()
     {
@@ -16,10 +16,7 @@ public class GameStateObserver : MonoBehaviour
         {
             // Store initial state
             _lastObservedState = _gameStateManager.State;
-        }
-        else
-        {
-            Debug.LogWarning("GameStateObserver could not find GameStateManager");
+            OnGameStateChanged(GameState.MainMenu, _lastObservedState); // Trigger initial state logic
         }
     }
 
@@ -28,16 +25,30 @@ public class GameStateObserver : MonoBehaviour
         if (_gameStateManager != null && _lastObservedState != _gameStateManager.State)
         {
             // State has changed
-            OnGameStateChanged(_lastObservedState, _gameStateManager.State);
+            GameState previousState = _lastObservedState;
             _lastObservedState = _gameStateManager.State;
+            OnGameStateChanged(previousState, _lastObservedState);
+        }
+        else if (_gameStateManager == null)
+        {
+            // Optionally try to find it again if it wasn't available at Start
+            _gameStateManager = FindObjectOfType<GameStateManager>();
         }
     }
 
     private void OnGameStateChanged(GameState oldState, GameState newState)
     {
-        Debug.Log($"GameStateObserver detected state change: {oldState} -> {newState}");
+        // Add custom state transition logic here
+        // This is useful for non-networked objects that need to respond
+        // Example: Enable/disable UI, change music, etc.
 
-        // Add custom state transition logic as needed
-        // This is useful for non-networked objects that need to respond to game state changes
+        if (newState == GameState.Playing)
+        {
+            // Actions to take when game starts playing
+        }
+        else if (newState == GameState.GameOver)
+        {
+            // Actions for game over
+        }
     }
 }
