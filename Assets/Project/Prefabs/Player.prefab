@@ -129,7 +129,6 @@ MonoBehaviour:
   m_ScreenCoordScaleBias: {x: 0, y: 0, z: 0, w: 0}
   m_RequiresDepthTexture: 0
   m_RequiresColorTexture: 0
-  m_Version: 2
   m_TaaSettings:
     m_Quality: 3
     m_FrameInfluence: 0.1
@@ -137,6 +136,7 @@ MonoBehaviour:
     m_MipBias: 0
     m_VarianceClampScale: 0.9
     m_ContrastAdaptiveSharpening: 0
+  m_Version: 2
 --- !u!1 &8084496490591366433
 GameObject:
   m_ObjectHideFlags: 0
@@ -152,6 +152,7 @@ GameObject:
   - component: {fileID: 739446958117319610}
   - component: {fileID: 2301474815692329637}
   - component: {fileID: -5131733369887749090}
+  - component: {fileID: 5111845000277467021}
   m_Layer: 0
   m_Name: Player
   m_TagString: Untagged
@@ -196,6 +197,7 @@ MonoBehaviour:
   - {fileID: 5745615109177488449}
   - {fileID: 739446958117319610}
   - {fileID: 2301474815692329637}
+  - {fileID: 5111845000277467021}
   ForceRemoteRenderTimeframe: 0
 --- !u!54 &7587903324999079842
 Rigidbody:
@@ -204,10 +206,10 @@ Rigidbody:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 8084496490591366433}
-  serializedVersion: 4
+  serializedVersion: 5
   m_Mass: 1
-  m_Drag: 0
-  m_AngularDrag: 0.05
+  m_LinearDamping: 0
+  m_AngularDamping: 0.05
   m_CenterOfMass: {x: 0, y: 0, z: 0}
   m_InertiaTensor: {x: 1, y: 1, z: 1}
   m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
@@ -275,11 +277,16 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _kcc: {fileID: 5745615109177488449}
   _camera: {fileID: 8025588294064833553}
+  _playerModel: {fileID: 8413917386038852662}
   _moveSpeed: 5
   _lookSensitivity: 2
   _jumpForce: 5
   _cameraMaxY: 80
   _cameraMinY: -80
+  _IsInVehicle:
+    _value: 0
+  _VehicleNetworkId:
+    Raw: 0
 --- !u!114 &2301474815692329637
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -332,6 +339,22 @@ MonoBehaviour:
   m_DefaultActionMap: Player
   m_SplitScreenIndex: -1
   m_Camera: {fileID: 8025588294064833553}
+--- !u!114 &5111845000277467021
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8084496490591366433}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0a5661c334e4ddb4d8ff82f9e958544b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::VehicleInteraction
+  _interactionCheckRadius: 1.5
+  _vehicleLayer:
+    serializedVersion: 2
+    m_Bits: 64
 --- !u!1 &8413917386038852662
 GameObject:
   m_ObjectHideFlags: 0
@@ -394,6 +417,8 @@ MeshRenderer:
   m_RayTracingAccelStructBuildFlagsOverride: 0
   m_RayTracingAccelStructBuildFlags: 1
   m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
@@ -415,6 +440,7 @@ MeshRenderer:
   m_AutoUVMaxDistance: 0.5
   m_AutoUVMaxAngle: 89
   m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
   m_SortingLayerID: 0
   m_SortingLayer: 0
   m_SortingOrder: 0

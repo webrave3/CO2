@@ -1,3 +1,4 @@
+// File: PlayerInput.cs (Modify existing)
 using UnityEngine;
 using Fusion;
 using Fusion.Sockets;
@@ -14,9 +15,17 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
     [SerializeField] private bool _debugInput = false;
     [SerializeField] private float _debugLogInterval = 3f;
 
+    // Player Movement Inputs
     private Vector2 _moveInput;
     private Vector2 _lookInput;
     private bool _jumpInput;
+
+    // ---- NEW ----
+    // Vehicle Inputs
+    private float _vehicleSteerInput;
+    private float _vehicleThrottleInput;
+    private bool _useInput;
+    // -------------
 
     private NetworkRunner _runner;
     private float _lastLogTime = 0f;
@@ -24,82 +33,76 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
     private void Awake()
     {
         _runner = GetComponent<NetworkRunner>();
-
-        if (Application.isPlaying)
-        {
-            Debug.Log("PlayerInput initialized");
-        }
+        if (Application.isPlaying) { Debug.Log("PlayerInput initialized"); }
     }
 
     private void Start()
     {
-        // Ensure the cursor is properly configured in the game scene
         string currentScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
         if (!currentScene.Contains("Lobby") && !currentScene.Contains("MainMenu"))
         {
-            Debug.Log("PlayerInput detected game scene - cursor should be locked by PlayerController");
+            // Cursor lock handled by PlayerController or VehicleController now
         }
     }
 
     private void Update()
     {
-        // Only collect input if the game is running
         if (!Application.isFocused) return;
 
-        // Get direct input from Unity's Input system - these will be passed to network
-        _moveInput.x = Input.GetAxisRaw("Horizontal");
-        _moveInput.y = Input.GetAxisRaw("Vertical");
+        // --- Player Movement Input ---
+        _moveInput.x = Input.GetAxisRaw("Horizontal"); // Typically A/D
+        _moveInput.y = Input.GetAxisRaw("Vertical");   // Typically W/S
 
-        // Explicitly track raw mouse movement with sensitivity applied
         float mouseX = Input.GetAxisRaw("Mouse X") * _mouseSensitivityMultiplier;
         float mouseY = Input.GetAxisRaw("Mouse Y") * _mouseSensitivityMultiplier;
-
-        // Apply inversion if needed
-        if (_invertMouseY)
-            mouseY = -mouseY;
-
-        // Store raw delta for this frame
+        if (_invertMouseY) mouseY = -mouseY;
         _lookInput = new Vector2(mouseX, mouseY);
 
         _jumpInput = Input.GetKey(KeyCode.Space);
+
+        // ---- NEW: Vehicle & Interaction Input ----
+        // Using arrow keys for vehicle to avoid conflict with player WASD for now
+        _vehicleSteerInput = Input.GetAxisRaw("Horizontal"); // A/D or Left/Right Arrow
+        _vehicleThrottleInput = Input.GetAxisRaw("Vertical"); // W/S or Up/Down Arrow
+
+        _useInput = Input.GetKeyDown(KeyCode.E); // Use E key for interaction
+        // ------------------------------------------
     }
 
     public void OnInput(NetworkRunner runner, NetworkInput input)
     {
-        // Make sure we have a valid runner and we're connected
-        if (runner == null || !runner.IsRunning)
-            return;
-
-        // Only provide input if this is the local player
-        if (!runner.IsPlayer)
-            return;
+        if (runner == null || !runner.IsRunning || !runner.IsPlayer) return;
 
         var data = new NetworkInputData();
 
-        // Transfer input to networked struct
+        // Player Movement
         data.HorizontalInput = _moveInput.x;
         data.VerticalInput = _moveInput.y;
-
-        // Important: Pass the raw mouse delta, not accumulated rotation
         data.MouseDelta = _lookInput;
-
         data.Jump = _jumpInput;
 
-        // Submit to network
+        // ---- NEW: Vehicle & Interaction ----
+        data.VehicleSteer = _vehicleSteerInput;
+        data.VehicleThrottle = _vehicleThrottleInput;
+        data.Use = _useInput;
+        // ------------------------------------
+
         input.Set(data);
 
-        // Debug output - throttled to avoid spam
-        if (_debugInput && (_moveInput.magnitude > 0.1f || _lookInput.magnitude > 0.1f))
+        // Reset Use input after sending (it's a KeyDown event)
+        _useInput = false;
+
+        if (_debugInput && (_moveInput.magnitude > 0.1f || _lookInput.magnitude > 0.1f || Mathf.Abs(_vehicleSteerInput) > 0.1f || Mathf.Abs(_vehicleThrottleInput) > 0.1f))
         {
             if (Time.time - _lastLogTime >= _debugLogInterval)
             {
-                Debug.Log($"Submitting network input: H={data.HorizontalInput:F2}, V={data.VerticalInput:F2}, MouseX={_lookInput.x:F2}, MouseY={_lookInput.y:F2}");
+                Debug.Log($"Input: Pl(H={data.HorizontalInput:F2}, V={data.VerticalInput:F2}) Veh(S={data.VehicleSteer:F2}, T={data.VehicleThrottle:F2}) Use={data.Use}");
                 _lastLogTime = Time.time;
             }
         }
     }
 
-    // Required INetworkRunnerCallbacks methods
+    // --- Rest of INetworkRunnerCallbacks methods (empty implementations) ---
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player) { }
     public void OnPlayerLeft(NetworkRunner runner, PlayerRef player) { }
     public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) { }

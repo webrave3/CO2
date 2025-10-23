@@ -39,7 +39,8 @@ public class GameMenuManager : MonoBehaviour
 
     // Private variables
     private NetworkRunnerHandler _networkHandler;
-    private bool _isMenuActive = false;
+    // FIX: Converted private field to public property to be accessible by PlayerController
+    public bool IsMenuActive { get; private set; } = false;
     private bool _isJoining = false;
     private CursorLockMode _previousCursorLockState;
     private bool _previousCursorVisible;
@@ -304,7 +305,8 @@ public class GameMenuManager : MonoBehaviour
 
         // Hide menu on scene change
         HideAllMenus();
-        _isMenuActive = false;
+        // FIX: Use the new public property
+        IsMenuActive = false;
 
         // Handle cursor based on scene
         if (scene.name == _mainMenuSceneName)
@@ -346,10 +348,11 @@ public class GameMenuManager : MonoBehaviour
 
     public void ToggleMenu()
     {
-        _isMenuActive = !_isMenuActive;
-        Debug.Log($"[GameMenuManager] Toggling menu, active: {_isMenuActive}");
+        // FIX: Use the new public property
+        IsMenuActive = !IsMenuActive;
+        Debug.Log($"[GameMenuManager] Toggling menu, active: {IsMenuActive}");
 
-        if (_isMenuActive)
+        if (IsMenuActive)
         {
             // Save current cursor state
             _previousCursorLockState = Cursor.lockState;
@@ -560,7 +563,8 @@ public class GameMenuManager : MonoBehaviour
 
             // Hide all menus including confirmation dialog
             HideAllMenus();
-            _isMenuActive = false;
+            // FIX: Use the new public property
+            IsMenuActive = false;
 
             // Properly shutdown network session
             if (_networkHandler != null && _networkHandler.Runner != null && _networkHandler.Runner.IsRunning)
@@ -612,7 +616,8 @@ public class GameMenuManager : MonoBehaviour
             {
                 // Hide all menu UI
                 HideAllMenus();
-                _isMenuActive = false;
+                // FIX: Use the new public property
+                IsMenuActive = false;
 
                 // Lock cursor for gameplay
                 SetCursorState(CursorLockMode.Locked, false);
@@ -713,7 +718,8 @@ public class GameMenuManager : MonoBehaviour
         Debug.Log($"MainMenuButton found: {_mainMenuButton != null}");
         Debug.Log($"ConfirmButton found: {_confirmButton != null}");
         Debug.Log($"CancelButton found: {_cancelButton != null}");
-        Debug.Log($"IsMenuActive: {_isMenuActive}");
+        // FIX: Use the new public property
+        Debug.Log($"IsMenuActive: {IsMenuActive}");
         Debug.Log("===================================");
     }
 }
