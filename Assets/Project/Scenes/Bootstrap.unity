@@ -340,6 +340,14 @@ PrefabInstance:
       propertyPath: m_Name
       value: NetworkRunner
       objectReference: {fileID: 0}
+    - target: {fileID: 6432980217168046443, guid: ab236c45ad85cc349a90534d43fc5131, type: 3}
+      propertyPath: '_vehiclePrefab.RawGuidValue.Array.data[0]'
+      value: -1989454322316735568
+      objectReference: {fileID: 0}
+    - target: {fileID: 6432980217168046443, guid: ab236c45ad85cc349a90534d43fc5131, type: 3}
+      propertyPath: '_vehiclePrefab.RawGuidValue.Array.data[1]'
+      value: -4275530916023614342
+      objectReference: {fileID: 0}
     - target: {fileID: 8605192206830861604, guid: ab236c45ad85cc349a90534d43fc5131, type: 3}
       propertyPath: m_LocalPosition.x
       value: 521.41565

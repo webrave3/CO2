@@ -1,7 +1,6 @@
 using Fusion;
 using UnityEngine;
 
-// Removed [RequireComponent(typeof(NetworkRigidbody))]
 [RequireComponent(typeof(Rigidbody))]
 public class BasicVehicleController : NetworkBehaviour
 {
@@ -12,6 +11,7 @@ public class BasicVehicleController : NetworkBehaviour
     [SerializeField] private WheelCollider _rearRightWheel;
     [SerializeField] private Transform _driverSeatPosition;
     [SerializeField] private GameObject _visualsRoot;
+    [SerializeField] private Camera _vehicleCamera; // NEW: Dedicated camera for driving
 
     [Header("Vehicle Settings")]
     [SerializeField] private float _motorTorque = 1500f;
@@ -32,32 +32,57 @@ public class BasicVehicleController : NetworkBehaviour
     {
         _rb = GetComponent<Rigidbody>();
         _rb.centerOfMass += _centerOfMassOffset;
+
+        if (_vehicleCamera != null)
+        {
+            _vehicleCamera.gameObject.SetActive(false); // Ensure camera starts disabled
+        }
+    }
+
+    // Unity's Update is used for visual effects (wheel mesh rotation) 
+    // as it doesn't need to be perfectly deterministic.
+    private void Update()
+    {
+        // Call the visual synchronization method every frame
+        SyncWheelVisuals(_frontLeftWheel);
+        SyncWheelVisuals(_frontRightWheel);
+        SyncWheelVisuals(_rearLeftWheel);
+        SyncWheelVisuals(_rearRightWheel);
+    }
+
+    private void SyncWheelVisuals(WheelCollider wheel)
+    {
+        // Simple function to make the wheel mesh match the collider's position/rotation
+        if (wheel.transform.childCount > 0)
+        {
+            Transform mesh = wheel.transform.GetChild(0);
+            Vector3 position;
+            Quaternion rotation;
+
+            wheel.GetWorldPose(out position, out rotation);
+
+            mesh.position = position;
+            mesh.rotation = rotation;
+        }
     }
 
     public override void FixedUpdateNetwork()
     {
-        // Only the State Authority (Host) processes driving input
         if (GetInput(out NetworkInputData data) && Driver != PlayerRef.None && Object.HasStateAuthority)
         {
             ApplyDriving(data.VehicleSteer, data.VehicleThrottle);
         }
-
-        // Apply visual updates locally based on networked state
-        UpdateVisuals(IsOccupied, Driver);
     }
 
     private void ApplyDriving(float steerInput, float throttleInput)
     {
-        // Steering
         float currentSteerAngle = _maxSteerAngle * steerInput;
         _frontLeftWheel.steerAngle = currentSteerAngle;
         _frontRightWheel.steerAngle = currentSteerAngle;
 
-        // Throttle/Brake
         float currentMotorTorque = _motorTorque * throttleInput;
         float currentBrakeTorque = 0f;
 
-        // FIX: Use linearVelocity (resolves obsolete warning)
         float forwardVelocity = transform.InverseTransformDirection(_rb.linearVelocity).z;
 
         if ((throttleInput < 0 && forwardVelocity > 0.1f) || (throttleInput > 0 && forwardVelocity < -0.1f))
@@ -79,59 +104,61 @@ public class BasicVehicleController : NetworkBehaviour
         _rearRightWheel.brakeTorque = currentBrakeTorque;
     }
 
-    // Called by Player via RPC to request entering the vehicle
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     public void RPC_RequestEnterVehicle(PlayerRef requestingPlayer)
     {
         if (!IsOccupied && Object.HasStateAuthority)
         {
-            Debug.Log($"Player {requestingPlayer} entering vehicle {Object.Id}");
             Driver = requestingPlayer;
             IsOccupied = true;
 
-            // FIX: Use Runner.TryGetPlayerObject to find the player object from PlayerRef
+            // FIX: Use Runner.TryGetPlayerObject to find the player object
             if (Runner.TryGetPlayerObject(requestingPlayer, out var playerObj))
             {
                 _driverNetworkObject = playerObj;
 
                 if (_driverNetworkObject.TryGetComponent<PlayerController>(out var playerController))
                 {
-                    // FIX: Pass the VEHICLE'S NetworkId (this.Object.Id)
                     playerController.SetInVehicle(true, this.Object.Id);
+                    RPC_ToggleVehicleCamera(true); // Toggle camera via RPC after entering
                 }
             }
         }
     }
 
-    // Called by Player via RPC to request exiting
     [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
     public void RPC_RequestExitVehicle(PlayerRef requestingPlayer)
     {
         if (IsOccupied && requestingPlayer == Driver && Object.HasStateAuthority)
         {
-            Debug.Log($"Player {requestingPlayer} exiting vehicle {Object.Id}");
-
-            // Find a safe exit position 
             Vector3 exitPosition = transform.position + transform.right * 2.0f + Vector3.up * 0.5f;
 
-            // Re-enable the player controller
             if (_driverNetworkObject != null && _driverNetworkObject.TryGetComponent<PlayerController>(out var playerController))
             {
-                // FIX: Pass NetworkId.Invalid (default) instead of null (resolves conversion error)
+                // FIX: Passed NetworkId.Invalid (default) instead of null
                 playerController.SetInVehicle(false, default, exitPosition);
+                RPC_ToggleVehicleCamera(false); // Toggle camera via RPC before exiting
             }
 
-            // Clear driver state
             Driver = PlayerRef.None;
             IsOccupied = false;
             _driverNetworkObject = null;
         }
     }
 
-    private void UpdateVisuals(bool occupied, PlayerRef driverRef)
+    // NEW RPC: Toggles the vehicle camera on all clients (called by host/server)
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_ToggleVehicleCamera(bool enable)
     {
-        // Custom visual synchronization logic would go here
+        if (_vehicleCamera != null)
+        {
+            _vehicleCamera.gameObject.SetActive(enable);
+
+            // This is just for demonstration. You'd typically use a more sophisticated method 
+            // to enable/disable camera controls and input specific to the vehicle camera.
+        }
     }
+
 
     public float GetInteractionRadius()
     {

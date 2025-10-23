@@ -13,6 +13,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     [Header("Network References")]
     [SerializeField] private NetworkPrefabRef _playerPrefab;
     [SerializeField] private NetworkPrefabRef _gameStateManagerPrefab;
+    [SerializeField] private NetworkPrefabRef _vehiclePrefab; // NEW: Reference for the vehicle prefab
 
     [Header("Scene Settings")]
     [SerializeField] private string _lobbySceneName = "Lobby";
@@ -648,27 +649,24 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             {
                 Debug.Log($"Spawning player: {player}");
 
-                // Get spawn point
+                // Player Spawning Logic 
                 Transform spawnPoint = GetSpawnPoint();
                 Vector3 spawnPosition;
                 Quaternion spawnRotation = Quaternion.identity;
 
                 if (spawnPoint != null)
                 {
-                    // Use exact spawn point position
                     spawnPosition = spawnPoint.position;
                     spawnRotation = spawnPoint.rotation;
                 }
                 else
                 {
-                    // Default spawn position - capsule bottom at Y=0
                     spawnPosition = new Vector3((player.RawEncoded % 4) * 2, 1.0f, 0);
                 }
 
                 try
                 {
                     NetworkObject networkPlayerObject = runner.Spawn(_playerPrefab, spawnPosition, spawnRotation, player);
-
                     if (networkPlayerObject != null)
                     {
                         _spawnedCharacters.Add(player, networkPlayerObject);
@@ -679,10 +677,17 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
                     Debug.LogError($"Exception when spawning player: {ex.Message}");
                 }
 
-                // Spawn GameStateManager if first player
-                if (runner.IsServer && FindObjectOfType<GameStateManager>() == null)
+                // 1. Spawn GameStateManager if first player
+                if (FindObjectOfType<GameStateManager>() == null)
                 {
                     runner.Spawn(_gameStateManagerPrefab);
+                }
+
+                // 2. Spawn the Vehicle if it doesn't exist yet (Vehicle spawning logic)
+                if (_vehiclePrefab.IsValid && FindObjectOfType<BasicVehicleController>() == null)
+                {
+                    runner.Spawn(_vehiclePrefab, new Vector3(0, 0.5f, 5), Quaternion.identity, inputAuthority: default);
+                    Debug.Log("Spawning BasicVehicleController instance successfully.");
                 }
             }
         }

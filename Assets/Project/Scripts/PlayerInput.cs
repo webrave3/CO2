@@ -1,4 +1,3 @@
-// File: PlayerInput.cs (Modify existing)
 using UnityEngine;
 using Fusion;
 using Fusion.Sockets;
@@ -20,12 +19,10 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
     private Vector2 _lookInput;
     private bool _jumpInput;
 
-    // ---- NEW ----
-    // Vehicle Inputs
+    // Vehicle & Interaction Inputs
     private float _vehicleSteerInput;
     private float _vehicleThrottleInput;
     private bool _useInput;
-    // -------------
 
     private NetworkRunner _runner;
     private float _lastLogTime = 0f;
@@ -38,20 +35,16 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
 
     private void Start()
     {
-        string currentScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
-        if (!currentScene.Contains("Lobby") && !currentScene.Contains("MainMenu"))
-        {
-            // Cursor lock handled by PlayerController or VehicleController now
-        }
+        // Initialization logic here
     }
 
     private void Update()
     {
         if (!Application.isFocused) return;
 
-        // --- Player Movement Input ---
-        _moveInput.x = Input.GetAxisRaw("Horizontal"); // Typically A/D
-        _moveInput.y = Input.GetAxisRaw("Vertical");   // Typically W/S
+        // Player Movement Input
+        _moveInput.x = Input.GetAxisRaw("Horizontal");
+        _moveInput.y = Input.GetAxisRaw("Vertical");
 
         float mouseX = Input.GetAxisRaw("Mouse X") * _mouseSensitivityMultiplier;
         float mouseY = Input.GetAxisRaw("Mouse Y") * _mouseSensitivityMultiplier;
@@ -60,13 +53,11 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
 
         _jumpInput = Input.GetKey(KeyCode.Space);
 
-        // ---- NEW: Vehicle & Interaction Input ----
-        // Using arrow keys for vehicle to avoid conflict with player WASD for now
-        _vehicleSteerInput = Input.GetAxisRaw("Horizontal"); // A/D or Left/Right Arrow
-        _vehicleThrottleInput = Input.GetAxisRaw("Vertical"); // W/S or Up/Down Arrow
+        // Vehicle & Interaction Input
+        _vehicleSteerInput = Input.GetAxisRaw("Horizontal");
+        _vehicleThrottleInput = Input.GetAxisRaw("Vertical");
 
-        _useInput = Input.GetKeyDown(KeyCode.E); // Use E key for interaction
-        // ------------------------------------------
+        _useInput = Input.GetKeyDown(KeyCode.E);
     }
 
     public void OnInput(NetworkRunner runner, NetworkInput input)
@@ -81,28 +72,25 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
         data.MouseDelta = _lookInput;
         data.Jump = _jumpInput;
 
-        // ---- NEW: Vehicle & Interaction ----
+        // Vehicle & Interaction
         data.VehicleSteer = _vehicleSteerInput;
         data.VehicleThrottle = _vehicleThrottleInput;
         data.Use = _useInput;
-        // ------------------------------------
 
         input.Set(data);
 
-        // Reset Use input after sending (it's a KeyDown event)
         _useInput = false;
 
-        if (_debugInput && (_moveInput.magnitude > 0.1f || _lookInput.magnitude > 0.1f || Mathf.Abs(_vehicleSteerInput) > 0.1f || Mathf.Abs(_vehicleThrottleInput) > 0.1f))
+        if (_debugInput && (Time.time - _lastLogTime >= _debugLogInterval))
         {
-            if (Time.time - _lastLogTime >= _debugLogInterval)
+            if (_moveInput.magnitude > 0.1f || _lookInput.magnitude > 0.1f || Mathf.Abs(_vehicleSteerInput) > 0.1f || Mathf.Abs(_vehicleThrottleInput) > 0.1f)
             {
                 Debug.Log($"Input: Pl(H={data.HorizontalInput:F2}, V={data.VerticalInput:F2}) Veh(S={data.VehicleSteer:F2}, T={data.VehicleThrottle:F2}) Use={data.Use}");
                 _lastLogTime = Time.time;
             }
         }
     }
-
-    // --- Rest of INetworkRunnerCallbacks methods (empty implementations) ---
+    // ... (rest of INetworkRunnerCallbacks methods) ...
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player) { }
     public void OnPlayerLeft(NetworkRunner runner, PlayerRef player) { }
     public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) { }
