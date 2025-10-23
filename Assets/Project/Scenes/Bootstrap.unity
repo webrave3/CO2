@@ -470,6 +470,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: SessionCodeManager
       objectReference: {fileID: 0}
+    - target: {fileID: 2069887609547980860, guid: a9abec64fe40636409b7d1200ee31b55, type: 3}
+      propertyPath: _debugMode
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 2161882946030936886, guid: a9abec64fe40636409b7d1200ee31b55, type: 3}
       propertyPath: m_LocalPosition.x
       value: 536.50037

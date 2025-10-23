@@ -48,4 +48,4 @@ MonoBehaviour:
   _nounsFile: {fileID: 4900000, guid: cda4aeb0d06ba9f4ea6b36190a68d183, type: 3}
   _blacklistedCombinationsFile: {fileID: 4900000, guid: 6ea3b7aea0b1afe41b592627d1a6fd96, type: 3}
   _recycleTimeInMinutes: 30
-  _debugMode: 1
+  _debugMode: 0

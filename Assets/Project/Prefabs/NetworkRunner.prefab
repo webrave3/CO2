@@ -61,6 +61,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   IsSceneTakeOverEnabled: 1
   LogSceneLoadErrors: 1
+  DestroySpawnedPrefabsOnSceneUnload: 1
 --- !u!114 &6432980217168046443
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -77,8 +78,13 @@ MonoBehaviour:
     RawGuidValue: 9278c1436184d9e409a5fdfc5513b916
   _gameStateManagerPrefab:
     RawGuidValue: 4dba8bf1603a93f4299fc2a6be0a5c9b
+  _vehiclePrefab:
+    RawGuidValue: b00b729dd50964e47a4436dc4843aac4
   _lobbySceneName: Lobby
   _gameSceneName: Game
+  _maxPlayers: 6
+  _enableDiscovery: 1
+  _debugIncludeSelfHostedSessions: 1
 --- !u!114 &5323422602270932895
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -93,5 +99,5 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _mouseSensitivityMultiplier: 1
   _invertMouseY: 0
-  _debugInput: 1
+  _debugInput: 0
   _debugLogInterval: 2
