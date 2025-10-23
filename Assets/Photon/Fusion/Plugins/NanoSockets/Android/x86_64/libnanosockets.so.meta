@@ -29,7 +29,9 @@ PluginImporter:
     second:
       enabled: 1
       settings:
+        AndroidSharedLibraryType: Executable
         CPU: X86_64
+        Is16KbAligned: true
   - first:
       Any: 
     second:
@@ -84,6 +86,6 @@ AssetOrigin:
   serializedVersion: 1
   productId: 267958
   packageName: Photon Fusion
-  packageVersion: 2.0.5
+  packageVersion: 2.0.8
   assetPath: Assets/Photon/Fusion/Plugins/NanoSockets/Android/x86_64/libnanosockets.so
-  uploadId: 735720
+  uploadId: 807342
