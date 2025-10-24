@@ -121,14 +121,14 @@ WheelCollider:
   m_GameObject: {fileID: 811379371992658477}
   serializedVersion: 2
   m_Center: {x: 0, y: 0, z: 0}
-  m_Radius: 0.5
+  m_Radius: 0.4
   m_SuspensionSpring:
     spring: 35000
     damper: 4500
     targetPosition: 0.5
   m_SuspensionDistance: 0.3
   m_ForceAppPointDistance: 0
-  m_Mass: 20
+  m_Mass: 5
   m_WheelDampingRate: 0.25
   m_ForwardFriction:
     m_ExtremumSlip: 0.4
@@ -272,14 +272,14 @@ WheelCollider:
   m_GameObject: {fileID: 1995287326963473206}
   serializedVersion: 2
   m_Center: {x: 0, y: 0, z: 0}
-  m_Radius: 0.5
+  m_Radius: 0.4
   m_SuspensionSpring:
     spring: 35000
     damper: 4500
     targetPosition: 0.5
   m_SuspensionDistance: 0.3
   m_ForceAppPointDistance: 0
-  m_Mass: 20
+  m_Mass: 5
   m_WheelDampingRate: 0.25
   m_ForwardFriction:
     m_ExtremumSlip: 0.4
@@ -423,14 +423,14 @@ WheelCollider:
   m_GameObject: {fileID: 3463028254431003501}
   serializedVersion: 2
   m_Center: {x: 0, y: 0, z: 0}
-  m_Radius: 0.5
+  m_Radius: 0.4
   m_SuspensionSpring:
     spring: 35000
     damper: 4500
     targetPosition: 0.5
   m_SuspensionDistance: 0.3
   m_ForceAppPointDistance: 0
-  m_Mass: 20
+  m_Mass: 5
   m_WheelDampingRate: 0.25
   m_ForwardFriction:
     m_ExtremumSlip: 0.4
@@ -574,14 +574,14 @@ WheelCollider:
   m_GameObject: {fileID: 3560137704089757937}
   serializedVersion: 2
   m_Center: {x: 0, y: 0, z: 0}
-  m_Radius: 0.5
+  m_Radius: 0.4
   m_SuspensionSpring:
     spring: 35000
     damper: 4500
     targetPosition: 0.5
   m_SuspensionDistance: 0.3
   m_ForceAppPointDistance: 0
-  m_Mass: 20
+  m_Mass: 5
   m_WheelDampingRate: 0.25
   m_ForwardFriction:
     m_ExtremumSlip: 0.4
@@ -773,7 +773,7 @@ Transform:
   m_GameObject: {fileID: 6207023818991607722}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 5, y: 15, z: -30.87223}
+  m_LocalPosition: {x: 5, y: 16.84, z: -30.87223}
   m_LocalScale: {x: 2.4262, y: 1, z: 2.2655}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -870,9 +870,9 @@ Rigidbody:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 6207023818991607722}
   serializedVersion: 5
-  m_Mass: 50
+  m_Mass: 500
   m_LinearDamping: 2
-  m_AngularDamping: 5
+  m_AngularDamping: 10
   m_CenterOfMass: {x: 0, y: 0, z: 0}
   m_InertiaTensor: {x: 1, y: 1, z: 1}
   m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
@@ -884,7 +884,7 @@ Rigidbody:
     m_Bits: 0
   m_ImplicitCom: 1
   m_ImplicitTensor: 1
-  m_UseGravity: 1
+  m_UseGravity: 0
   m_IsKinematic: 0
   m_Interpolate: 0
   m_Constraints: 0
@@ -945,11 +945,11 @@ MonoBehaviour:
   _driverSeatPosition: {fileID: 5148892356614844692}
   _visualsRoot: {fileID: 6207023818991607722}
   _vehicleCamera: {fileID: 7248850392209742545}
-  _motorTorque: 5000
+  _motorTorque: 5000000
   _brakeTorque: 2000
-  _maxSteerAngle: 30
+  _maxSteerAngle: 50
   _centerOfMassOffset: {x: 0, y: -0.5, z: 0}
-  _interactionRadius: 5
+  _interactionRadius: 50
 --- !u!1 &7070795914787496425
 GameObject:
   m_ObjectHideFlags: 0
