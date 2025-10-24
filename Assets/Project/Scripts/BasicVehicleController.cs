@@ -125,9 +125,9 @@ public class BasicVehicleController : NetworkBehaviour
         if (_rearRightWheel != null) _rearRightWheel.brakeTorque = currentBrakeTorque;
     }
 
-    // RPC called by a client (Player with InputAuthority) to request entering the vehicle
+    // --- RPC MODIFICATION #1: Added "NetworkObject playerNetworkObject" parameter ---
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
-    public void RPC_RequestEnterVehicle(PlayerRef requestingPlayer)
+    public void RPC_RequestEnterVehicle(PlayerRef requestingPlayer, NetworkObject playerNetworkObject)
     {
         // --- DEBUG: Log RPC reception ---
         Debug.Log($"[Server] RPC_RequestEnterVehicle received from Player {requestingPlayer}. HasStateAuthority: {Object.HasStateAuthority}. IsOccupied: {IsOccupied}");
@@ -143,13 +143,14 @@ public class BasicVehicleController : NetworkBehaviour
             Driver = requestingPlayer;
             IsOccupied = true;
 
-            // Try to find the NetworkObject associated with the requesting player
-            if (Runner.TryGetPlayerObject(requestingPlayer, out var playerObj))
+            // --- RPC MODIFICATION #2: Replaced the failing TryGetPlayerObject block ---
+            // Use the NetworkObject passed directly into the RPC
+            if (playerNetworkObject != null)
             {
-                // --- DEBUG: Log player object found ---
-                Debug.Log($"[Server] Found NetworkObject for Player {requestingPlayer}. Object ID: {playerObj.Id}");
+                // --- DEBUG: Log player object received ---
+                Debug.Log($"[Server] Received NetworkObject for Player {requestingPlayer}. Object ID: {playerNetworkObject.Id}");
                 // --- End DEBUG ---
-                _driverNetworkObject = playerObj; // Store reference
+                _driverNetworkObject = playerNetworkObject; // Store reference
 
                 // Try to get the PlayerController component from the player's NetworkObject
                 if (_driverNetworkObject.TryGetComponent<PlayerController>(out var playerController))
@@ -177,10 +178,11 @@ public class BasicVehicleController : NetworkBehaviour
             }
             else
             {
-                // --- DEBUG: Log Player Object NOT found ---
-                Debug.LogError($"[Server] Failed to find NetworkObject for Player {requestingPlayer} using Runner.TryGetPlayerObject!");
+                // --- DEBUG: Log Player Object was NULL ---
+                Debug.LogError($"[Server] Received NULL NetworkObject for Player {requestingPlayer} from RPC!");
                 // --- End DEBUG ---
             }
+            // --- END OF MODIFICATION #2 ---
         }
         else if (IsOccupied)
         {

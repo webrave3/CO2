@@ -41,7 +41,9 @@ public class VehicleInteraction : NetworkBehaviour
                         // --- DEBUG: Log vehicle found and RPC call ---
                         Debug.Log($"Found nearest vehicle: {nearestVehicle.Id}. Requesting Enter Vehicle RPC...");
                         // --- End DEBUG ---
-                        nearestVehicle.RPC_RequestEnterVehicle(Runner.LocalPlayer);
+
+                        // --- MODIFICATION: Pass "this.Object" (the player's NetworkObject) into the RPC ---
+                        nearestVehicle.RPC_RequestEnterVehicle(Runner.LocalPlayer, this.Object);
                     }
                     else
                     {
