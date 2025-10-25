@@ -20,10 +20,6 @@ public class MainMenuUI : MonoBehaviour
     [SerializeField] private Button _showBrowserButton;
     [SerializeField] private RoomBrowserUI _roomBrowserUI;
 
-    [Header("Direct Join")]
-    [SerializeField] private TMP_InputField _roomCodeInput;
-    [SerializeField] private Button _directJoinButton;
-
     [Header("Settings")]
     [SerializeField] private string _defaultSessionName = "GameSession";
 
@@ -87,7 +83,7 @@ public class MainMenuUI : MonoBehaviour
             if (_hostButton != null) _hostButton.interactable = false;
             if (_joinButton != null) _joinButton.interactable = false;
             if (_showBrowserButton != null) _showBrowserButton.interactable = false;
-            if (_directJoinButton != null) _directJoinButton.interactable = false;
+            
         }
         else
         {
@@ -135,11 +131,7 @@ public class MainMenuUI : MonoBehaviour
             });
         }
 
-        if (_directJoinButton != null)
-        {
-            _directJoinButton.onClick.RemoveAllListeners();
-            _directJoinButton.onClick.AddListener(OnDirectJoinButtonClicked);
-        }
+        
 
         // Host Panel-specific buttons
         if (_hostPanel != null)
@@ -239,53 +231,6 @@ public class MainMenuUI : MonoBehaviour
         }
     }
 
-    private async void OnDirectJoinButtonClicked()
-    {
-        // --- ADDED DEBUG LOGS ---
-        Debug.Log($"MainMenuUI OnDirectJoinButtonClicked: Trying to join. _networkRunnerHandler is null? {_networkRunnerHandler == null}");
-
-        if (_networkRunnerHandler == null)
-        {
-            Debug.LogError("Cannot Join: _networkRunnerHandler is null right before trying to join!");
-            ShowStatusMessage("Network Error. Cannot join.", true);
-            // Optionally, try finding it again just in case, though this indicates an underlying initialization order problem
-            // _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>();
-            // if (_networkRunnerHandler == null)
-            // {
-            //     Debug.LogError("Still NULL after trying FindObjectOfType again!");
-            //     return; // Still not found, exit.
-            // }
-            // Debug.LogWarning("Found NetworkRunnerHandler dynamically inside OnDirectJoinButtonClicked. Check initialization order!");
-            return; // Exit if null after initial check
-        }
-        // --- END ADDED DEBUG LOGS ---
-
-        SavePlayerName();
-        ShowLoadingUI("Joining game by code...");
-
-        string roomCode = (_roomCodeInput != null && !string.IsNullOrEmpty(_roomCodeInput.text))
-            ? _roomCodeInput.text.Trim() : string.Empty;
-
-        if (string.IsNullOrEmpty(roomCode))
-        {
-            ShowStatusMessage("Invalid room code. Please try again.", false); // Show temporary error
-            await Task.Delay(2000);
-            ShowPanel(_joinGamePanel); // Return to join panel
-            return;
-        }
-
-        // Join game by hash
-        await _networkRunnerHandler.StartClientGameByHash(roomCode);
-
-        // Similar to host, check if join failed
-        // Note: Runner might become null if Shutdown occurs within StartClientGameByHash on failure
-        if (_networkRunnerHandler.Runner == null || !_networkRunnerHandler.Runner.IsRunning)
-        {
-            ShowStatusMessage("Failed to join game with that code.", false); // Show temporary error
-            await Task.Delay(2000);
-            ShowPanel(_joinGamePanel); // Return to join panel
-        }
-    }
 
     private void OnQuitButtonClicked()
     {

@@ -156,7 +156,7 @@ public class RoomBrowserUI : MonoBehaviour
             if (_roomListContent != null) _roomListContent.gameObject.SetActive(true);
             if (_showPlaceholderWhenEmpty) AddPlaceholderRooms();
 
-            await _networkRunnerHandler.ForceActiveSessionRefresh();
+            await _networkRunnerHandler.RefreshSessionList();
             await Task.Delay(500); // Allow time for list update
             PopulateRoomList();
         }
