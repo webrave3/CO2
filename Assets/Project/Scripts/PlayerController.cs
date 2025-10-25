@@ -198,52 +198,82 @@ public class PlayerController : NetworkBehaviour
     }
 
     // Called via RPC from BasicVehicleController
+    // Called via RPC from NetworkedPrometeoCar (previously BasicVehicleController)
+    // Called via RPC from NetworkedPrometeoCar
     public void SetInVehicle(NetworkBool inVehicle, NetworkId vehicleId = default, Vector3 exitPos = default)
     {
+        // Store the networked state (using the correct property names)
         IsInVehicle = inVehicle;
-        VehicleNetworkId = vehicleId;
+        VehicleNetworkId = vehicleId; // Corrected: Use the actual Networked property name
 
-        BasicVehicleController vehicle = null;
+        // --- Find the correct vehicle component ---
+        NetworkedPrometeoCar vehicleComponent = null;
+        // Corrected: Check VehicleNetworkId validity
         if (inVehicle && Runner != null && VehicleNetworkId.IsValid)
         {
+            // Corrected: Use VehicleNetworkId to find the object
             if (Runner.TryFindObject(VehicleNetworkId, out var vehicleObj))
             {
-                vehicle = vehicleObj.GetComponent<BasicVehicleController>();
+                // Try to get the NetworkedPrometeoCar component
+                if (!vehicleObj.TryGetComponent(out vehicleComponent))
+                {
+                    // Corrected: Use VehicleNetworkId in the log message
+                    Debug.LogError($"Vehicle object {VehicleNetworkId} found, but it is missing the NetworkedPrometeoCar component!");
+                }
+            }
+            else
+            {
+                // Corrected: Use VehicleNetworkId in the log message
+                Debug.LogError($"SetInVehicle: Could not find vehicle NetworkObject with ID {VehicleNetworkId}.");
             }
         }
+        // --- End Finding Component ---
 
-        // Apply changes locally if Input Authority
+        // Apply local changes for the player controlling this object
         if (HasInputAuthority)
         {
             if (_camera != null) _camera.enabled = !inVehicle;
 
-            // --- AUDIO LISTENER FIX: Enable/Disable based on vehicle state ---
+            // --- AUDIO LISTENER ---
             if (_playerAudioListener != null)
             {
-                _playerAudioListener.enabled = !inVehicle; // Enable listener if OUT of vehicle, disable if IN
+                _playerAudioListener.enabled = !inVehicle;
             }
-            // --- End AUDIO LISTENER FIX ---
+            // --- End AUDIO LISTENER ---
 
-            // Teleport KCC *before* enabling/disabling if needed when exiting
-            if (!inVehicle)
+            // Enable/Disable KCC and handle teleportation
+            if (_kcc != null)
             {
-                _kcc.SetPosition(exitPos); // Teleport first
+                // When exiting, teleport the KCC *before* enabling it
+                if (!inVehicle)
+                {
+                    // Ensure exitPos is valid, otherwise use a default relative position
+                    Vector3 targetPosition = (exitPos == default) ? transform.position + transform.forward : exitPos;
+                    _kcc.SetPosition(targetPosition);
+                    Debug.Log($"PlayerController {Object.Id}: Teleporting KCC to exit position {targetPosition}");
+                }
+                _kcc.enabled = !inVehicle; // Enable KCC when exiting, disable when entering
             }
-            _kcc.enabled = !inVehicle; // Then toggle KCC state
+            else { Debug.LogError("KCC reference is null in PlayerController!"); }
         }
 
-        // Toggle player model visibility for everyone
+        // Toggle player model visibility for everyone (unchanged)
         if (_playerModel != null)
         {
             _playerModel.SetActive(!inVehicle);
         }
+        else { Debug.LogWarning("Player Model reference is not set on PlayerController!"); }
 
-        // Update VehicleInteraction's current vehicle reference
+        // Update VehicleInteraction's current vehicle reference (passing the correct type)
         if (_vehicleInteraction != null)
         {
-            _vehicleInteraction.SetCurrentVehicle(vehicle);
+            _vehicleInteraction.SetCurrentVehicle(vehicleComponent); // Pass the found NetworkedPrometeoCar (or null)
+            Debug.Log($"PlayerController {Object.Id}: Updated VehicleInteraction with vehicle {(vehicleComponent == null ? "null" : vehicleComponent.Id.ToString())}");
         }
-        // Debug.Log($"Player {Object.InputAuthority} IsInVehicle set to: {inVehicle}");
+        else { Debug.LogError("VehicleInteraction reference is null in PlayerController!"); }
+
+        // Corrected: Use vehicleId parameter name in the log message
+        Debug.Log($"PlayerController {Object.Id} IsInVehicle set to: {inVehicle} for Vehicle: {vehicleId}");
     }
 
 

@@ -122,9 +122,15 @@ public class PrometeoCarController : MonoBehaviour
       public GameObject handbrakeButton;
       PrometeoTouchInput handbrakePTI;
 
+    // --- NETWORK INPUT VARIABLES ---
+    private float networkThrottleInput = 0f;
+    private float networkSteeringInput = 0f;
+    private bool networkHandbrakeInput = false;
+    // --- END NETWORK INPUT VARIABLES ---
+
     //CAR DATA
 
-      [HideInInspector]
+    [HideInInspector]
       public float carSpeed; // Used to store the speed of the car.
       [HideInInspector]
       public bool isDrifting; // Used to know whether the car is drifting or not.
@@ -263,112 +269,83 @@ public class PrometeoCarController : MonoBehaviour
     }
 
     // Update is called once per frame
+    // Update is called once per frame
     void Update()
     {
+        // CAR DATA
+        // We determine the speed of the car.
+        carSpeed = (2 * Mathf.PI * frontLeftCollider.radius * frontLeftCollider.rpm * 60) / 1000;
+        // Save the local velocity of the car in the x axis. Used to know if the car is drifting.
+        localVelocityX = transform.InverseTransformDirection(carRigidbody.linearVelocity).x;
+        // Save the local velocity of the car in the z axis. Used to know if the car is going forward or backwards.
+        localVelocityZ = transform.InverseTransformDirection(carRigidbody.linearVelocity).z;
 
-      //CAR DATA
+        // --- NEW INPUT HANDLING in Update() ---
 
-      // We determine the speed of the car.
-      carSpeed = (2 * Mathf.PI * frontLeftCollider.radius * frontLeftCollider.rpm * 60) / 1000;
-      // Save the local velocity of the car in the x axis. Used to know if the car is drifting.
-      localVelocityX = transform.InverseTransformDirection(carRigidbody.linearVelocity).x;
-      // Save the local velocity of the car in the z axis. Used to know if the car is going forward or backwards.
-      localVelocityZ = transform.InverseTransformDirection(carRigidbody.linearVelocity).z;
-
-      //CAR PHYSICS
-
-      /*
-      The next part is regarding to the car controller. First, it checks if the user wants to use touch controls (for
-      mobile devices) or analog input controls (WASD + Space).
-
-      The following methods are called whenever a certain key is pressed. For example, in the first 'if' we call the
-      method GoForward() if the user has pressed W.
-
-      In this part of the code we specify what the car needs to do if the user presses W (throttle), S (reverse),
-      A (turn left), D (turn right) or Space bar (handbrake).
-      */
-      if (useTouchControls && touchControlsSetup){
-
-        if(throttlePTI.buttonPressed){
-          CancelInvoke("DecelerateCar");
-          deceleratingCar = false;
-          GoForward();
+        // Process Throttle/Reverse based on networkThrottleInput
+        if (networkThrottleInput > 0.05f) // Apply throttle (forward)
+        {
+            CancelInvoke("DecelerateCar");
+            deceleratingCar = false;
+            GoForward(networkThrottleInput); // Pass the input value
         }
-        if(reversePTI.buttonPressed){
-          CancelInvoke("DecelerateCar");
-          deceleratingCar = false;
-          GoReverse();
+        else if (networkThrottleInput < -0.05f) // Apply reverse/brake
+        {
+            CancelInvoke("DecelerateCar");
+            deceleratingCar = false;
+            GoReverse(Mathf.Abs(networkThrottleInput)); // Pass the absolute input value
         }
-
-        if(turnLeftPTI.buttonPressed){
-          TurnLeft();
-        }
-        if(turnRightPTI.buttonPressed){
-          TurnRight();
-        }
-        if(handbrakePTI.buttonPressed){
-          CancelInvoke("DecelerateCar");
-          deceleratingCar = false;
-          Handbrake();
-        }
-        if(!handbrakePTI.buttonPressed){
-          RecoverTraction();
-        }
-        if((!throttlePTI.buttonPressed && !reversePTI.buttonPressed)){
-          ThrottleOff();
-        }
-        if((!reversePTI.buttonPressed && !throttlePTI.buttonPressed) && !handbrakePTI.buttonPressed && !deceleratingCar){
-          InvokeRepeating("DecelerateCar", 0f, 0.1f);
-          deceleratingCar = true;
-        }
-        if(!turnLeftPTI.buttonPressed && !turnRightPTI.buttonPressed && steeringAxis != 0f){
-          ResetSteeringAngle();
+        else // No throttle/reverse input
+        {
+            ThrottleOff();
+            // Start decelerating if not already doing so and handbrake is off
+            if (!networkHandbrakeInput && !deceleratingCar)
+            {
+                // Check if already invoking to prevent duplicates (optional safety)
+                if (!IsInvoking("DecelerateCar"))
+                {
+                    InvokeRepeating("DecelerateCar", 0f, 0.1f);
+                }
+                deceleratingCar = true;
+            }
         }
 
-      }else{
-
-        if(Input.GetKey(KeyCode.W)){
-          CancelInvoke("DecelerateCar");
-          deceleratingCar = false;
-          GoForward();
+        // Process Steering based on networkSteeringInput
+        if (networkSteeringInput > 0.05f) // Turn Right
+        {
+            TurnRight(networkSteeringInput);
         }
-        if(Input.GetKey(KeyCode.S)){
-          CancelInvoke("DecelerateCar");
-          deceleratingCar = false;
-          GoReverse();
+        else if (networkSteeringInput < -0.05f) // Turn Left
+        {
+            TurnLeft(Mathf.Abs(networkSteeringInput));
         }
-
-        if(Input.GetKey(KeyCode.A)){
-          TurnLeft();
-        }
-        if(Input.GetKey(KeyCode.D)){
-          TurnRight();
-        }
-        if(Input.GetKey(KeyCode.Space)){
-          CancelInvoke("DecelerateCar");
-          deceleratingCar = false;
-          Handbrake();
-        }
-        if(Input.GetKeyUp(KeyCode.Space)){
-          RecoverTraction();
-        }
-        if((!Input.GetKey(KeyCode.S) && !Input.GetKey(KeyCode.W))){
-          ThrottleOff();
-        }
-        if((!Input.GetKey(KeyCode.S) && !Input.GetKey(KeyCode.W)) && !Input.GetKey(KeyCode.Space) && !deceleratingCar){
-          InvokeRepeating("DecelerateCar", 0f, 0.1f);
-          deceleratingCar = true;
-        }
-        if(!Input.GetKey(KeyCode.A) && !Input.GetKey(KeyCode.D) && steeringAxis != 0f){
-          ResetSteeringAngle();
+        else // No steering input
+        {
+            ResetSteeringAngle();
         }
 
-      }
+        // Process Handbrake based on networkHandbrakeInput
+        if (networkHandbrakeInput)
+        {
+            CancelInvoke("DecelerateCar"); // Stop automatic deceleration
+            deceleratingCar = false;
+            Handbrake();
+        }
+        else
+        {
+            // If handbrake was pressed previously (check Handbrake() internal state or RecoverTraction())
+            // We only want to *start* recovering traction once. RecoverTraction handles its repeated calls.
+            // Check driftingAxis or isTractionLocked state before calling.
+            if (isTractionLocked || driftingAxis > 0f) // Only call Recover if we were drifting/braking
+            {
+                RecoverTraction();
+            }
+        }
 
+        // We call the method AnimateWheelMeshes() in order to match the wheel collider movements with the 3D meshes of the wheels.
+        AnimateWheelMeshes();
 
-      // We call the method AnimateWheelMeshes() in order to match the wheel collider movements with the 3D meshes of the wheels.
-      AnimateWheelMeshes();
-
+        // --- END NEW INPUT HANDLING ---
     }
 
     // This method converts the car speed data from float to string, and then set the text of the UI carSpeedText with this value.
@@ -423,42 +400,81 @@ public class PrometeoCarController : MonoBehaviour
     //
 
     //The following method turns the front car wheels to the left. The speed of this movement will depend on the steeringSpeed variable.
-    public void TurnLeft(){
-      steeringAxis = steeringAxis - (Time.deltaTime * 10f * steeringSpeed);
-      if(steeringAxis < -1f){
-        steeringAxis = -1f;
-      }
-      var steeringAngle = steeringAxis * maxSteeringAngle;
-      frontLeftCollider.steerAngle = Mathf.Lerp(frontLeftCollider.steerAngle, steeringAngle, steeringSpeed);
-      frontRightCollider.steerAngle = Mathf.Lerp(frontRightCollider.steerAngle, steeringAngle, steeringSpeed);
+    //The following method turns the front car wheels to the left. The speed of this movement will depend on the steeringSpeed variable.
+    public void TurnLeft(float inputValue) // Added inputValue parameter
+    {
+        // REMOVED: steeringAxis calculation block
+
+        // Calculate target angle directly from input
+        var steeringAngle = -inputValue * maxSteeringAngle; // Use negative input value for left turn
+
+        // Lerp towards the target angle
+        frontLeftCollider.steerAngle = Mathf.Lerp(frontLeftCollider.steerAngle, steeringAngle, steeringSpeed);
+        frontRightCollider.steerAngle = Mathf.Lerp(frontRightCollider.steerAngle, steeringAngle, steeringSpeed);
+
+        // Keep internal steeringAxis roughly in sync if needed elsewhere (optional)
+        steeringAxis = frontLeftCollider.steerAngle / maxSteeringAngle;
     }
 
     //The following method turns the front car wheels to the right. The speed of this movement will depend on the steeringSpeed variable.
-    public void TurnRight(){
-      steeringAxis = steeringAxis + (Time.deltaTime * 10f * steeringSpeed);
-      if(steeringAxis > 1f){
-        steeringAxis = 1f;
-      }
-      var steeringAngle = steeringAxis * maxSteeringAngle;
-      frontLeftCollider.steerAngle = Mathf.Lerp(frontLeftCollider.steerAngle, steeringAngle, steeringSpeed);
-      frontRightCollider.steerAngle = Mathf.Lerp(frontRightCollider.steerAngle, steeringAngle, steeringSpeed);
+    //The following method turns the front car wheels to the right. The speed of this movement will depend on the steeringSpeed variable.
+    public void TurnRight(float inputValue) // Added inputValue parameter
+    {
+        // REMOVED: steeringAxis calculation block
+
+        // Calculate target angle directly from input
+        var steeringAngle = inputValue * maxSteeringAngle; // Use positive input value for right turn
+
+        // Lerp towards the target angle
+        frontLeftCollider.steerAngle = Mathf.Lerp(frontLeftCollider.steerAngle, steeringAngle, steeringSpeed);
+        frontRightCollider.steerAngle = Mathf.Lerp(frontRightCollider.steerAngle, steeringAngle, steeringSpeed);
+
+        // Keep internal steeringAxis roughly in sync if needed elsewhere (optional)
+        steeringAxis = frontLeftCollider.steerAngle / maxSteeringAngle;
     }
 
     //The following method takes the front car wheels to their default position (rotation = 0). The speed of this movement will depend
     // on the steeringSpeed variable.
-    public void ResetSteeringAngle(){
-      if(steeringAxis < 0f){
-        steeringAxis = steeringAxis + (Time.deltaTime * 10f * steeringSpeed);
-      }else if(steeringAxis > 0f){
-        steeringAxis = steeringAxis - (Time.deltaTime * 10f * steeringSpeed);
-      }
-      if(Mathf.Abs(frontLeftCollider.steerAngle) < 1f){
-        steeringAxis = 0f;
-      }
-      var steeringAngle = steeringAxis * maxSteeringAngle;
-      frontLeftCollider.steerAngle = Mathf.Lerp(frontLeftCollider.steerAngle, steeringAngle, steeringSpeed);
-      frontRightCollider.steerAngle = Mathf.Lerp(frontRightCollider.steerAngle, steeringAngle, steeringSpeed);
+    //The following method takes the front car wheels to their default position (rotation = 0). The speed of this movement will depend
+    // on the steeringSpeed variable.
+    public void ResetSteeringAngle()
+    {
+        // Simply lerp the steering angle back towards 0
+        float currentAngle = frontLeftCollider.steerAngle; // Assuming both wheels have same angle
+        float targetAngle = 0f;
+        // Using a slightly faster lerp might feel better for reset, adjust factor as needed
+        float lerpFactor = steeringSpeed * Time.deltaTime * 10f;
+        float newAngle = Mathf.Lerp(currentAngle, targetAngle, lerpFactor);
+
+        // Add a threshold to snap to zero when close to prevent endless lerping
+        if (Mathf.Abs(newAngle) < 0.1f)
+        {
+            newAngle = 0f;
+        }
+
+        frontLeftCollider.steerAngle = newAngle;
+        frontRightCollider.steerAngle = newAngle;
+
+        // Reset internal steeringAxis too, although it's not directly used for input anymore
+        // This might be needed if other parts of the script rely on it.
+        if (newAngle == 0f)
+        {
+            steeringAxis = 0f;
+        }
+        else
+        {
+            steeringAxis = newAngle / maxSteeringAngle; // Keep it roughly in sync
+        }
     }
+
+    // --- METHOD TO RECEIVE NETWORK INPUT ---
+    public void SetInputs(float throttle, float steering, bool handbrake)
+    {
+        networkThrottleInput = throttle;
+        networkSteeringInput = steering;
+        networkHandbrakeInput = handbrake;
+    }
+    // --- END METHOD TO RECEIVE NETWORK INPUT ---
 
     // This method matches both the position and rotation of the WheelColliders with the WheelMeshes.
     void AnimateWheelMeshes(){
@@ -496,91 +512,107 @@ public class PrometeoCarController : MonoBehaviour
     //
 
     // This method apply positive torque to the wheels in order to go forward.
-    public void GoForward(){
-      //If the forces aplied to the rigidbody in the 'x' asis are greater than
-      //3f, it means that the car is losing traction, then the car will start emitting particle systems.
-      if(Mathf.Abs(localVelocityX) > 2.5f){
-        isDrifting = true;
-        DriftCarPS();
-      }else{
-        isDrifting = false;
-        DriftCarPS();
-      }
-      // The following part sets the throttle power to 1 smoothly.
-      throttleAxis = throttleAxis + (Time.deltaTime * 3f);
-      if(throttleAxis > 1f){
-        throttleAxis = 1f;
-      }
-      //If the car is going backwards, then apply brakes in order to avoid strange
-      //behaviours. If the local velocity in the 'z' axis is less than -1f, then it
-      //is safe to apply positive torque to go forward.
-      if(localVelocityZ < -1f){
-        Brakes();
-      }else{
-        if(Mathf.RoundToInt(carSpeed) < maxSpeed){
-          //Apply positive torque in all wheels to go forward if maxSpeed has not been reached.
-          frontLeftCollider.brakeTorque = 0;
-          frontLeftCollider.motorTorque = (accelerationMultiplier * 50f) * throttleAxis;
-          frontRightCollider.brakeTorque = 0;
-          frontRightCollider.motorTorque = (accelerationMultiplier * 50f) * throttleAxis;
-          rearLeftCollider.brakeTorque = 0;
-          rearLeftCollider.motorTorque = (accelerationMultiplier * 50f) * throttleAxis;
-          rearRightCollider.brakeTorque = 0;
-          rearRightCollider.motorTorque = (accelerationMultiplier * 50f) * throttleAxis;
-        }else {
-          // If the maxSpeed has been reached, then stop applying torque to the wheels.
-          // IMPORTANT: The maxSpeed variable should be considered as an approximation; the speed of the car
-          // could be a bit higher than expected.
-    			frontLeftCollider.motorTorque = 0;
-    			frontRightCollider.motorTorque = 0;
-          rearLeftCollider.motorTorque = 0;
-    			rearRightCollider.motorTorque = 0;
-    		}
-      }
+    // This method apply positive torque to the wheels in order to go forward.
+    public void GoForward(float inputValue) // Added inputValue parameter
+    {
+        //If the forces aplied to the rigidbody in the 'x' asis are greater than
+        //3f, it means that the car is losing traction, then the car will start emitting particle systems.
+        if (Mathf.Abs(localVelocityX) > 2.5f)
+        {
+            isDrifting = true;
+            DriftCarPS();
+        }
+        else
+        {
+            isDrifting = false;
+            DriftCarPS();
+        }
+        // REMOVED: throttleAxis calculation block
+
+        //If the car is going backwards, then apply brakes in order to avoid strange
+        //behaviours. If the local velocity in the 'z' axis is less than -1f, then it
+        //is safe to apply positive torque to go forward.
+        if (localVelocityZ < -1f)
+        {
+            Brakes();
+        }
+        else
+        {
+            if (Mathf.RoundToInt(carSpeed) < maxSpeed)
+            {
+                //Apply positive torque in all wheels to go forward if maxSpeed has not been reached.
+                frontLeftCollider.brakeTorque = 0;
+                frontLeftCollider.motorTorque = (accelerationMultiplier * 50f) * inputValue; // Use inputValue
+                frontRightCollider.brakeTorque = 0;
+                frontRightCollider.motorTorque = (accelerationMultiplier * 50f) * inputValue; // Use inputValue
+                rearLeftCollider.brakeTorque = 0;
+                rearLeftCollider.motorTorque = (accelerationMultiplier * 50f) * inputValue; // Use inputValue
+                rearRightCollider.brakeTorque = 0;
+                rearRightCollider.motorTorque = (accelerationMultiplier * 50f) * inputValue; // Use inputValue
+            }
+            else
+            {
+                // If the maxSpeed has been reached, then stop applying torque to the wheels.
+                // IMPORTANT: The maxSpeed variable should be considered as an approximation; the speed of the car
+                // could be a bit higher than expected.
+                frontLeftCollider.motorTorque = 0;
+                frontRightCollider.motorTorque = 0;
+                rearLeftCollider.motorTorque = 0;
+                rearRightCollider.motorTorque = 0;
+            }
+        }
     }
 
     // This method apply negative torque to the wheels in order to go backwards.
-    public void GoReverse(){
-      //If the forces aplied to the rigidbody in the 'x' asis are greater than
-      //3f, it means that the car is losing traction, then the car will start emitting particle systems.
-      if(Mathf.Abs(localVelocityX) > 2.5f){
-        isDrifting = true;
-        DriftCarPS();
-      }else{
-        isDrifting = false;
-        DriftCarPS();
-      }
-      // The following part sets the throttle power to -1 smoothly.
-      throttleAxis = throttleAxis - (Time.deltaTime * 3f);
-      if(throttleAxis < -1f){
-        throttleAxis = -1f;
-      }
-      //If the car is still going forward, then apply brakes in order to avoid strange
-      //behaviours. If the local velocity in the 'z' axis is greater than 1f, then it
-      //is safe to apply negative torque to go reverse.
-      if(localVelocityZ > 1f){
-        Brakes();
-      }else{
-        if(Mathf.Abs(Mathf.RoundToInt(carSpeed)) < maxReverseSpeed){
-          //Apply negative torque in all wheels to go in reverse if maxReverseSpeed has not been reached.
-          frontLeftCollider.brakeTorque = 0;
-          frontLeftCollider.motorTorque = (accelerationMultiplier * 50f) * throttleAxis;
-          frontRightCollider.brakeTorque = 0;
-          frontRightCollider.motorTorque = (accelerationMultiplier * 50f) * throttleAxis;
-          rearLeftCollider.brakeTorque = 0;
-          rearLeftCollider.motorTorque = (accelerationMultiplier * 50f) * throttleAxis;
-          rearRightCollider.brakeTorque = 0;
-          rearRightCollider.motorTorque = (accelerationMultiplier * 50f) * throttleAxis;
-        }else {
-          //If the maxReverseSpeed has been reached, then stop applying torque to the wheels.
-          // IMPORTANT: The maxReverseSpeed variable should be considered as an approximation; the speed of the car
-          // could be a bit higher than expected.
-    			frontLeftCollider.motorTorque = 0;
-    			frontRightCollider.motorTorque = 0;
-          rearLeftCollider.motorTorque = 0;
-    			rearRightCollider.motorTorque = 0;
-    		}
-      }
+    // This method apply negative torque to the wheels in order to go backwards.
+    public void GoReverse(float inputValue) // Added inputValue parameter
+    {
+        //If the forces aplied to the rigidbody in the 'x' asis are greater than
+        //3f, it means that the car is losing traction, then the car will start emitting particle systems.
+        if (Mathf.Abs(localVelocityX) > 2.5f)
+        {
+            isDrifting = true;
+            DriftCarPS();
+        }
+        else
+        {
+            isDrifting = false;
+            DriftCarPS();
+        }
+        // REMOVED: throttleAxis calculation block
+
+        //If the car is still going forward, then apply brakes in order to avoid strange
+        //behaviours. If the local velocity in the 'z' axis is greater than 1f, then it
+        //is safe to apply negative torque to go reverse.
+        if (localVelocityZ > 1f)
+        {
+            Brakes();
+        }
+        else
+        {
+            if (Mathf.Abs(Mathf.RoundToInt(carSpeed)) < maxReverseSpeed)
+            {
+                //Apply negative torque in all wheels to go in reverse if maxReverseSpeed has not been reached.
+                frontLeftCollider.brakeTorque = 0;
+                frontLeftCollider.motorTorque = (accelerationMultiplier * 50f) * -inputValue; // Use -inputValue
+                frontRightCollider.brakeTorque = 0;
+                frontRightCollider.motorTorque = (accelerationMultiplier * 50f) * -inputValue; // Use -inputValue
+                rearLeftCollider.brakeTorque = 0;
+                rearLeftCollider.motorTorque = (accelerationMultiplier * 50f) * -inputValue; // Use -inputValue
+                rearRightCollider.brakeTorque = 0;
+                rearRightCollider.motorTorque = (accelerationMultiplier * 50f) * -inputValue; // Use -inputValue
+            }
+            else
+            {
+                //If the maxReverseSpeed has been reached, then stop applying torque to the wheels.
+                // IMPORTANT: The maxReverseSpeed variable should be considered as an approximation; the speed of the car
+                // could be a bit higher than expected.
+                frontLeftCollider.motorTorque = 0;
+                frontRightCollider.motorTorque = 0;
+                rearLeftCollider.motorTorque = 0;
+                rearRightCollider.motorTorque = 0;
+            }
+        }
     }
 
     //The following function set the motor torque to 0 (in case the user is not pressing either W or S).
@@ -594,37 +626,61 @@ public class PrometeoCarController : MonoBehaviour
     // The following method decelerates the speed of the car according to the decelerationMultiplier variable, where
     // 1 is the slowest and 10 is the fastest deceleration. This method is called by the function InvokeRepeating,
     // usually every 0.1f when the user is not pressing W (throttle), S (reverse) or Space bar (handbrake).
-    public void DecelerateCar(){
-      if(Mathf.Abs(localVelocityX) > 2.5f){
-        isDrifting = true;
-        DriftCarPS();
-      }else{
-        isDrifting = false;
-        DriftCarPS();
-      }
-      // The following part resets the throttle power to 0 smoothly.
-      if(throttleAxis != 0f){
-        if(throttleAxis > 0f){
-          throttleAxis = throttleAxis - (Time.deltaTime * 10f);
-        }else if(throttleAxis < 0f){
-            throttleAxis = throttleAxis + (Time.deltaTime * 10f);
+    // The following method decelerates the speed of the car according to the decelerationMultiplier variable, where
+    // 1 is the slowest and 10 is the fastest deceleration. This method is called by the function InvokeRepeating,
+    // usually every 0.1f when the user is not pressing W (throttle), S (reverse) or Space bar (handbrake).
+    public void DecelerateCar()
+    {
+        if (Mathf.Abs(localVelocityX) > 2.5f)
+        {
+            isDrifting = true;
+            DriftCarPS();
         }
-        if(Mathf.Abs(throttleAxis) < 0.15f){
-          throttleAxis = 0f;
+        else
+        {
+            isDrifting = false;
+            DriftCarPS();
         }
-      }
-      carRigidbody.linearVelocity = carRigidbody.linearVelocity * (1f / (1f + (0.025f * decelerationMultiplier)));
-      // Since we want to decelerate the car, we are going to remove the torque from the wheels of the car.
-      frontLeftCollider.motorTorque = 0;
-      frontRightCollider.motorTorque = 0;
-      rearLeftCollider.motorTorque = 0;
-      rearRightCollider.motorTorque = 0;
-      // If the magnitude of the car's velocity is less than 0.25f (very slow velocity), then stop the car completely and
-      // also cancel the invoke of this method.
-      if(carRigidbody.linearVelocity.magnitude < 0.25f){
-        carRigidbody.linearVelocity = Vector3.zero;
-        CancelInvoke("DecelerateCar");
-      }
+
+        // REMOVED: throttleAxis reset block
+
+        // Decelerate using velocity damping
+        // Note: Direct velocity manipulation can sometimes fight with physics simulation.
+        // If issues arise, consider applying opposing force/torque or increasing Rigidbody drag instead.
+        carRigidbody.linearVelocity = carRigidbody.linearVelocity * (1f / (1f + (0.025f * decelerationMultiplier)));
+        // Optionally add angular deceleration too
+        // carRigidbody.angularVelocity = carRigidbody.angularVelocity * (1f / (1f + (0.025f * decelerationMultiplier)));
+
+
+        // Since we want to decelerate the car, we are going to remove the torque from the wheels of the car.
+        frontLeftCollider.motorTorque = 0;
+        frontRightCollider.motorTorque = 0;
+        rearLeftCollider.motorTorque = 0;
+        rearRightCollider.motorTorque = 0;
+
+        // Apply some brake torque to help slow down - adjust force as needed
+        // You might want a different, smaller brake force for natural deceleration vs. hard braking
+        float decelBrakeForce = brakeForce / 10f; // Example: 10% of max brake force
+        frontLeftCollider.brakeTorque = decelBrakeForce;
+        frontRightCollider.brakeTorque = decelBrakeForce;
+        rearLeftCollider.brakeTorque = decelBrakeForce;
+        rearRightCollider.brakeTorque = decelBrakeForce;
+
+        // If the magnitude of the car's velocity is less than 0.25f (very slow velocity), then stop the car completely and
+        // also cancel the invoke of this method.
+        if (carRigidbody.linearVelocity.magnitude < 0.25f)
+        {
+            carRigidbody.linearVelocity = Vector3.zero;
+            carRigidbody.angularVelocity = Vector3.zero; // Stop rotation too
+            CancelInvoke("DecelerateCar");
+            deceleratingCar = false; // Ensure state is reset
+
+            // Ensure brakes are off once fully stopped by deceleration
+            frontLeftCollider.brakeTorque = 0;
+            frontRightCollider.brakeTorque = 0;
+            rearLeftCollider.brakeTorque = 0;
+            rearRightCollider.brakeTorque = 0;
+        }
     }
 
     // This function applies brake torque to the wheels according to the brake force given by the user.

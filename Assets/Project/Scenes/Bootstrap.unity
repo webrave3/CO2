@@ -346,11 +346,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6432980217168046443, guid: ab236c45ad85cc349a90534d43fc5131, type: 3}
       propertyPath: '_vehiclePrefab.RawGuidValue.Array.data[0]'
-      value: -1989454322316735568
+      value: -2001596797327155558
       objectReference: {fileID: 0}
     - target: {fileID: 6432980217168046443, guid: ab236c45ad85cc349a90534d43fc5131, type: 3}
       propertyPath: '_vehiclePrefab.RawGuidValue.Array.data[1]'
-      value: -4275530916023614342
+      value: -8022722293872735670
       objectReference: {fileID: 0}
     - target: {fileID: 8605192206830861604, guid: ab236c45ad85cc349a90534d43fc5131, type: 3}
       propertyPath: m_LocalPosition.x
@@ -395,8 +395,33 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 463439149161756918, guid: ab236c45ad85cc349a90534d43fc5131, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1260623753}
   m_SourcePrefab: {fileID: 100100000, guid: ab236c45ad85cc349a90534d43fc5131, type: 3}
+--- !u!1 &1260623752 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 463439149161756918, guid: ab236c45ad85cc349a90534d43fc5131, type: 3}
+  m_PrefabInstance: {fileID: 1260623751}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &1260623753
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1260623752}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7b5a1ff9dee264bfd829a39e6542dcbd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Fusion.Addons.Physics::Fusion.Addons.Physics.RunnerSimulatePhysics3D
+  _physicsAuthority: 2
+  _physicsTiming: 3
+  ClientPhysicsSimulation: 0
+  DeltaTimeMultiplier: 1
+  SetUnityFixedTimestep: 0
 --- !u!1 &2116198337
 GameObject:
   m_ObjectHideFlags: 0
