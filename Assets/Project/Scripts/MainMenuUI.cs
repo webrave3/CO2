@@ -62,6 +62,10 @@ public class MainMenuUI : MonoBehaviour
 
     void Start()
     {
+        // --- ADDED DEBUG LOG ---
+        Debug.Log("MainMenuUI Start: Starting...");
+        // --- END ADDED DEBUG LOG ---
+
         // Get NetworkRunnerHandler - first try from BootstrapManager
         if (BootstrapManager.Instance != null)
         {
@@ -74,8 +78,10 @@ public class MainMenuUI : MonoBehaviour
             _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>();
         }
 
+        // --- ADDED NULL CHECK LOGS ---
         if (_networkRunnerHandler == null)
         {
+            Debug.LogError("MainMenuUI Start: NetworkRunnerHandler NOT FOUND after checking BootstrapManager and FindObjectOfType!");
             // Optionally disable network-dependent UI elements here
             ShowStatusMessage("Network Error: Handler not found.", true); // Show persistent error
             if (_hostButton != null) _hostButton.interactable = false;
@@ -83,6 +89,11 @@ public class MainMenuUI : MonoBehaviour
             if (_showBrowserButton != null) _showBrowserButton.interactable = false;
             if (_directJoinButton != null) _directJoinButton.interactable = false;
         }
+        else
+        {
+            Debug.Log("MainMenuUI Start: NetworkRunnerHandler found successfully.");
+        }
+        // --- END ADDED NULL CHECK LOGS ---
 
         // Initialize region dropdown
         InitializeRegionDropdown();
@@ -105,7 +116,6 @@ public class MainMenuUI : MonoBehaviour
                 _playerNameInput.text = "Player" + UnityEngine.Random.Range(1000, 9999);
             }
         }
-
 
         // Set up UI callbacks - Clear all listeners first to avoid duplicates
         SetupButton(_hostButton, () => ShowPanel(_hostPanel));
@@ -131,12 +141,9 @@ public class MainMenuUI : MonoBehaviour
             _directJoinButton.onClick.AddListener(OnDirectJoinButtonClicked);
         }
 
-        // Removed Debug Button setup
-
         // Host Panel-specific buttons
         if (_hostPanel != null)
         {
-            // Find button more reliably, e.g., by name if multiple buttons exist
             Button hostStartButton = _hostPanel.transform.Find("StartHostButton")?.GetComponent<Button>(); // Example name
             if (hostStartButton == null) hostStartButton = _hostPanel.GetComponentInChildren<Button>(); // Fallback
 
@@ -152,8 +159,6 @@ public class MainMenuUI : MonoBehaviour
 
         // Set up back buttons
         SetupBackButtons();
-
-        // Removed Auto-actions check (assuming they were for debugging)
     }
 
     private void InitializeRegionDropdown()
@@ -236,11 +241,24 @@ public class MainMenuUI : MonoBehaviour
 
     private async void OnDirectJoinButtonClicked()
     {
+        // --- ADDED DEBUG LOGS ---
+        Debug.Log($"MainMenuUI OnDirectJoinButtonClicked: Trying to join. _networkRunnerHandler is null? {_networkRunnerHandler == null}");
+
         if (_networkRunnerHandler == null)
         {
+            Debug.LogError("Cannot Join: _networkRunnerHandler is null right before trying to join!");
             ShowStatusMessage("Network Error. Cannot join.", true);
-            return;
+            // Optionally, try finding it again just in case, though this indicates an underlying initialization order problem
+            // _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>();
+            // if (_networkRunnerHandler == null)
+            // {
+            //     Debug.LogError("Still NULL after trying FindObjectOfType again!");
+            //     return; // Still not found, exit.
+            // }
+            // Debug.LogWarning("Found NetworkRunnerHandler dynamically inside OnDirectJoinButtonClicked. Check initialization order!");
+            return; // Exit if null after initial check
         }
+        // --- END ADDED DEBUG LOGS ---
 
         SavePlayerName();
         ShowLoadingUI("Joining game by code...");
@@ -260,6 +278,7 @@ public class MainMenuUI : MonoBehaviour
         await _networkRunnerHandler.StartClientGameByHash(roomCode);
 
         // Similar to host, check if join failed
+        // Note: Runner might become null if Shutdown occurs within StartClientGameByHash on failure
         if (_networkRunnerHandler.Runner == null || !_networkRunnerHandler.Runner.IsRunning)
         {
             ShowStatusMessage("Failed to join game with that code.", false); // Show temporary error

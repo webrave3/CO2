@@ -46,7 +46,8 @@ public class LobbyManager : NetworkBehaviour
         RefreshPlayerReadyList(); // Initial population
     }
 
-    private void OnStartGameClicked()
+    // Add the 'async' keyword here
+    private async void OnStartGameClicked()
     {
         // Only the host (server) can start the game
         if (Runner != null && Runner.IsServer)
@@ -60,7 +61,17 @@ public class LobbyManager : NetworkBehaviour
                 // Host loads the game scene for everyone
                 if (_networkRunnerHandler != null)
                 {
-                    _networkRunnerHandler.LoadScene(_gameSceneName);
+                    // Add the 'await' keyword here
+                    // Use try-catch for error handling during scene load
+                    try
+                    {
+                        await _networkRunnerHandler.LoadScene(_gameSceneName);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        Debug.LogError($"Error loading scene {_gameSceneName}: {ex.Message}");
+                        // Handle scene load failure if necessary
+                    }
                 }
             }
         }
