@@ -33,7 +33,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     private NetworkSceneManagerDefault _sceneManager;
 
     // Discovery-specific fields
-    
+
     private DateTime _lastRefreshTime = DateTime.MinValue;
 
     // Store available sessions locally
@@ -42,7 +42,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
 
     public bool IsSessionActive => _runner != null && _runner.IsRunning;
     public NetworkRunner Runner => _runner;
-    
+
 
     public List<SessionInfo> GetAvailableSessions() => new List<SessionInfo>(_availableSessions);
 
@@ -159,7 +159,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         // Ensure runner component exists, but if it does, it MUST be shut down and destroyed
         if (_runner != null)
         {
-            if(!_runner.IsUnityNull())
+            if (!_runner.IsUnityNull())
             {
                 if (_runner.IsRunning || _runner.IsCloudReady || !_runner.IsShutdown)
                 {
@@ -175,8 +175,8 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             }
             else
             {
-                 Debug.Log("RefreshSessionList: _runner was already null or destroyed.");
-                 _runner = null; // Ensure it's null
+                Debug.Log("RefreshSessionList: _runner was already null or destroyed.");
+                _runner = null; // Ensure it's null
             }
         }
 
@@ -186,12 +186,12 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             Debug.Log("RefreshSessionList: Adding new runner component for discovery.");
             _runner = gameObject.AddComponent<NetworkRunner>();
             _runner.AddCallbacks(this); // Add callbacks immediately
-             Debug.Log("RefreshSessionList: Callbacks added.");
+            Debug.Log("RefreshSessionList: Callbacks added.");
         }
         else
         {
-             Debug.LogError("RefreshSessionList: _runner was NOT null before AddComponent! This shouldn't happen.");
-             return; // Avoid potential issues
+            Debug.LogError("RefreshSessionList: _runner was NOT null before AddComponent! This shouldn't happen.");
+            return; // Avoid potential issues
         }
 
         // Try connecting to the Name Server and joining the default lobby
@@ -209,12 +209,12 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             Debug.Log($"RefreshSessionList: Attempting StartGame with mode: {args.GameMode} (to join lobby)");
             var result = await _runner.StartGame(args);
 
-             Debug.Log($"RefreshSessionList: Lobby Join StartGame result: Ok={result.Ok}, Reason={result.ShutdownReason}");
+            Debug.Log($"RefreshSessionList: Lobby Join StartGame result: Ok={result.Ok}, Reason={result.ShutdownReason}");
 
             if (!result.Ok)
             {
                 Debug.LogError($"RefreshSessionList: Failed to start client to join lobby: {result.ShutdownReason}");
-                 if (_runner != null && !_runner.IsUnityNull() && !_runner.IsShutdown) await _runner.Shutdown();
+                if (_runner != null && !_runner.IsUnityNull() && !_runner.IsShutdown) await _runner.Shutdown();
                 return;
             }
 
@@ -225,23 +225,25 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             bool listUpdated = false;
             while (Time.time < startTime + 5.0f) // 5 second timeout
             {
-                 // Check if the callback updated the list (maybe add a flag in OnSessionListUpdated)
-                 // For now, just rely on the delay, but ideally, you'd check a flag.
-                 await Task.Delay(100); // Check every 100ms
-                 if (_availableSessions.Count > 0) { // Simple check if list got populated
-                      listUpdated = true;
-                      Debug.Log("RefreshSessionList: Detected session list update.");
-                      break;
-                 }
+                // Check if the callback updated the list (maybe add a flag in OnSessionListUpdated)
+                // For now, just rely on the delay, but ideally, you'd check a flag.
+                await Task.Delay(100); // Check every 100ms
+                if (_availableSessions.Count > 0)
+                { // Simple check if list got populated
+                    listUpdated = true;
+                    Debug.Log("RefreshSessionList: Detected session list update.");
+                    break;
+                }
             }
 
-            if (!listUpdated) {
-                 Debug.LogWarning("RefreshSessionList: Timed out waiting for session list update after joining lobby.");
+            if (!listUpdated)
+            {
+                Debug.LogWarning("RefreshSessionList: Timed out waiting for session list update after joining lobby.");
             }
 
             Debug.Log("RefreshSessionList: Finished waiting/timeout.");
 
-            
+
         }
         catch (Exception ex)
         {
@@ -288,80 +290,25 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         _availableSessions.Clear();
     }
 
-    public async Task StartClientGameBySessionInfo(SessionInfo sessionInfo) // sessionInfo here is Photon's SessionInfo
+    public async Task StartClientGameBySessionInfo(SessionInfo sessionInfo)
     {
-        Debug.Log($"StartClientGameBySessionInfo: Preparing to join session with Name (UniqueID): {sessionInfo.Name}");
         try
         {
-            // --- START MODIFICATION: Explicitly Reset Runner ---
-            // Shut down the runner used for lobby discovery first.
-            if (_runner != null && !_runner.IsUnityNull() && (_runner.IsRunning || _runner.IsCloudReady || !_runner.IsShutdown))
-            {
-                Debug.Log("StartClientGameBySessionInfo: Shutting down existing (lobby) runner before joining specific session...");
-                await _runner.Shutdown();
-                await Task.Delay(200); // Allow time for shutdown
-            }
+            if (_runner == null) return;
+            _runner.ProvideInput = true; _isJoining = true;
 
-            // Destroy the old component
-            if (_runner != null && !_runner.IsUnityNull())
-            {
-                Debug.Log("StartClientGameBySessionInfo: Destroying old runner component.");
-                Destroy(_runner);
-                await Task.Yield(); // Wait a frame
-                _runner = null;
-            }
+            if (sessionInfo.Properties.TryGetValue("DisplayName", out var displayNameObj)) SessionDisplayName = displayNameObj.PropertyValue.ToString(); else SessionDisplayName = sessionInfo.Name;
+            if (sessionInfo.Properties.TryGetValue("Hash", out var hashObj)) SessionHash = hashObj.PropertyValue.ToString(); else SessionHash = ComputeSessionHash(sessionInfo.Name);
 
-            // Add a fresh runner instance for the specific join attempt
-            Debug.Log("StartClientGameBySessionInfo: Adding new runner component for specific session join.");
-            _runner = gameObject.AddComponent<NetworkRunner>();
-            _runner.AddCallbacks(this); // Re-add callbacks
-                                        // --- END MODIFICATION ---
-
-
-            _runner.ProvideInput = true; // Set input provision on the new runner
-            _isJoining = true;
-
-            // Log what we are trying to join
-            Debug.Log($"StartClientGameBySessionInfo: Attempting StartGame to join session: {sessionInfo.Name}");
-
-            var startGameArgs = new StartGameArgs()
-            {
-                GameMode = GameMode.Client,
-                SessionName = sessionInfo.Name, // Use the Unique ID received from Photon
-                SceneManager = _sceneManager
-            };
-
+            var startGameArgs = new StartGameArgs() { GameMode = GameMode.Client, SessionName = sessionInfo.Name, SceneManager = _sceneManager };
             var result = await _runner.StartGame(startGameArgs);
-
-            Debug.Log($"StartClientGameBySessionInfo: Join result: Ok={result.Ok}, Reason={result.ShutdownReason}");
-
             if (result.Ok && _runner.SessionInfo != null)
             {
                 SessionUniqueID = _runner.SessionInfo.Name;
-                // It's generally better practice to rely on properties received, but let's keep your original logic for now
-                if (sessionInfo.Properties.TryGetValue("DisplayName", out var displayNameObj)) SessionDisplayName = displayNameObj.PropertyValue.ToString(); else SessionDisplayName = sessionInfo.Name;
-                if (sessionInfo.Properties.TryGetValue("Hash", out var hashObj)) SessionHash = hashObj.PropertyValue.ToString(); else SessionHash = ComputeSessionHash(sessionInfo.Name);
-                Debug.Log($"StartClientGameBySessionInfo: Successfully started/joined session: {SessionUniqueID}");
-                // Scene change should be handled by Fusion's SceneManager upon successful connection
-            }
-            else
-            {
-                Debug.LogError($"StartClientGameBySessionInfo: Failed to join session {sessionInfo.Name}. Reason: {result.ShutdownReason}");
-                // Consider resetting runner state here if needed upon failure
             }
             _isJoining = false;
         }
-        catch (Exception ex)
-        {
-            Debug.LogError($"StartClientGameBySessionInfo: Exception: {ex.Message} \nStack Trace: {ex.StackTrace}");
-            _isJoining = false;
-            // Ensure runner is cleaned up on exception too
-            if (_runner != null && !_runner.IsUnityNull() && !_runner.IsShutdown)
-            {
-                await _runner.Shutdown();
-                // Optionally destroy and nullify _runner here too
-            }
-        }
+        catch (Exception ex) { _isJoining = false; }
     }
 
     private void SetupSessionCode(string sessionNameBase)
