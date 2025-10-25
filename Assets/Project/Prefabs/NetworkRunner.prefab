@@ -79,12 +79,11 @@ MonoBehaviour:
   _gameStateManagerPrefab:
     RawGuidValue: 4dba8bf1603a93f4299fc2a6be0a5c9b
   _vehiclePrefab:
-    RawGuidValue: b00b729dd50964e47a4436dc4843aac4
+    RawGuidValue: 00000000000000000000000000000000
   _lobbySceneName: Lobby
   _gameSceneName: Game
   _maxPlayers: 6
   _enableDiscovery: 1
-  _debugIncludeSelfHostedSessions: 1
 --- !u!114 &5323422602270932895
 MonoBehaviour:
   m_ObjectHideFlags: 0
