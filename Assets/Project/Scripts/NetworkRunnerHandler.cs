@@ -288,25 +288,80 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         _availableSessions.Clear();
     }
 
-    public async Task StartClientGameBySessionInfo(SessionInfo sessionInfo)
+    public async Task StartClientGameBySessionInfo(SessionInfo sessionInfo) // sessionInfo here is Photon's SessionInfo
     {
+        Debug.Log($"StartClientGameBySessionInfo: Preparing to join session with Name (UniqueID): {sessionInfo.Name}");
         try
         {
-            if (_runner == null) return;
-            _runner.ProvideInput = true; _isJoining = true;
+            // --- START MODIFICATION: Explicitly Reset Runner ---
+            // Shut down the runner used for lobby discovery first.
+            if (_runner != null && !_runner.IsUnityNull() && (_runner.IsRunning || _runner.IsCloudReady || !_runner.IsShutdown))
+            {
+                Debug.Log("StartClientGameBySessionInfo: Shutting down existing (lobby) runner before joining specific session...");
+                await _runner.Shutdown();
+                await Task.Delay(200); // Allow time for shutdown
+            }
 
-            if (sessionInfo.Properties.TryGetValue("DisplayName", out var displayNameObj)) SessionDisplayName = displayNameObj.PropertyValue.ToString(); else SessionDisplayName = sessionInfo.Name;
-            if (sessionInfo.Properties.TryGetValue("Hash", out var hashObj)) SessionHash = hashObj.PropertyValue.ToString(); else SessionHash = ComputeSessionHash(sessionInfo.Name);
+            // Destroy the old component
+            if (_runner != null && !_runner.IsUnityNull())
+            {
+                Debug.Log("StartClientGameBySessionInfo: Destroying old runner component.");
+                Destroy(_runner);
+                await Task.Yield(); // Wait a frame
+                _runner = null;
+            }
 
-            var startGameArgs = new StartGameArgs() { GameMode = GameMode.Client, SessionName = sessionInfo.Name, SceneManager = _sceneManager };
+            // Add a fresh runner instance for the specific join attempt
+            Debug.Log("StartClientGameBySessionInfo: Adding new runner component for specific session join.");
+            _runner = gameObject.AddComponent<NetworkRunner>();
+            _runner.AddCallbacks(this); // Re-add callbacks
+                                        // --- END MODIFICATION ---
+
+
+            _runner.ProvideInput = true; // Set input provision on the new runner
+            _isJoining = true;
+
+            // Log what we are trying to join
+            Debug.Log($"StartClientGameBySessionInfo: Attempting StartGame to join session: {sessionInfo.Name}");
+
+            var startGameArgs = new StartGameArgs()
+            {
+                GameMode = GameMode.Client,
+                SessionName = sessionInfo.Name, // Use the Unique ID received from Photon
+                SceneManager = _sceneManager
+            };
+
             var result = await _runner.StartGame(startGameArgs);
+
+            Debug.Log($"StartClientGameBySessionInfo: Join result: Ok={result.Ok}, Reason={result.ShutdownReason}");
+
             if (result.Ok && _runner.SessionInfo != null)
             {
                 SessionUniqueID = _runner.SessionInfo.Name;
+                // It's generally better practice to rely on properties received, but let's keep your original logic for now
+                if (sessionInfo.Properties.TryGetValue("DisplayName", out var displayNameObj)) SessionDisplayName = displayNameObj.PropertyValue.ToString(); else SessionDisplayName = sessionInfo.Name;
+                if (sessionInfo.Properties.TryGetValue("Hash", out var hashObj)) SessionHash = hashObj.PropertyValue.ToString(); else SessionHash = ComputeSessionHash(sessionInfo.Name);
+                Debug.Log($"StartClientGameBySessionInfo: Successfully started/joined session: {SessionUniqueID}");
+                // Scene change should be handled by Fusion's SceneManager upon successful connection
+            }
+            else
+            {
+                Debug.LogError($"StartClientGameBySessionInfo: Failed to join session {sessionInfo.Name}. Reason: {result.ShutdownReason}");
+                // Consider resetting runner state here if needed upon failure
             }
             _isJoining = false;
         }
-        catch (Exception ex) { _isJoining = false; }
+        catch (Exception ex)
+        {
+            Debug.LogError($"StartClientGameBySessionInfo: Exception: {ex.Message} \nStack Trace: {ex.StackTrace}");
+            _isJoining = false;
+            // Ensure runner is cleaned up on exception too
+            if (_runner != null && !_runner.IsUnityNull() && !_runner.IsShutdown)
+            {
+                await _runner.Shutdown();
+                // Optionally destroy and nullify _runner here too
+            }
+        }
     }
 
     private void SetupSessionCode(string sessionNameBase)
