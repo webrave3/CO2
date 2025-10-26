@@ -1,3 +1,4 @@
+﻿// Filename: RoomCodeUI.cs
 using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
@@ -95,16 +96,23 @@ public class RoomCodeUI : MonoBehaviour
 
     private async void JoinRoomByCode()
     {
+        // --- 🔴 CHECKPOINT 1 ---
+        InGameDebug.Log($"--- [CP 1] JoinRoomByCode ---");
+        InGameDebug.Log($"Input field value: '{_roomCodeInput.text}'");
+        // --- END CHECKPOINT ---
+
         if (_isJoining || _networkRunnerHandler == null || _roomCodeInput == null) return;
 
         string roomCode = _roomCodeInput.text.Trim();
         if (string.IsNullOrEmpty(roomCode))
         {
             ShowErrorMessage("Please enter a room code");
+            InGameDebug.Log($"[CP 1] Input was empty. Aborting.");
             return;
         }
 
         roomCode = FormatRoomCodeInput(roomCode); // Clean up user input
+        InGameDebug.Log($"[CP 1] Formatted room code to: '{roomCode}'");
 
         _isJoining = true;
         if (_joiningIndicator != null) _joiningIndicator.SetActive(true);
@@ -113,25 +121,31 @@ public class RoomCodeUI : MonoBehaviour
 
         try
         {
+            InGameDebug.Log($"[CP 1] Calling StartClientGameByHash...");
             await _networkRunnerHandler.StartClientGameByHash(roomCode);
+            InGameDebug.Log($"[CP 1] StartClientGameByHash returned.");
 
             // Check if join succeeded after a short delay (scene change handles success)
             await System.Threading.Tasks.Task.Delay(1000); // Wait 1 second
+            InGameDebug.Log($"[CP 1] Post-join check (1s delay).");
 
             if (_isJoining && // Still in joining state?
                 (_networkRunnerHandler.Runner == null || !_networkRunnerHandler.Runner.IsRunning || string.IsNullOrEmpty(_networkRunnerHandler.SessionUniqueID)))
             {
+                InGameDebug.Log($"[CP 1] Post-join check FAILED. Runner not running or no SessionID.");
                 ShowErrorMessage("Could not find or join game with that code");
                 ResetJoiningUI();
             }
             else if (_isJoining)
             {
+                InGameDebug.Log($"[CP 1] Post-join check SUCCESS (or scene changed).");
                 // Connected or scene changed, just reset UI state silently
                 ResetJoiningUI();
             }
         }
         catch (System.Exception ex) // Catch potential exceptions during StartClientGameByHash
         {
+            InGameDebug.Log($"[CP 1] EXCEPTION in JoinRoomByCode: {ex.Message}");
             ShowErrorMessage($"Error joining: {ex.Message}");
             ResetJoiningUI();
         }
@@ -139,6 +153,7 @@ public class RoomCodeUI : MonoBehaviour
 
     private void ResetJoiningUI()
     {
+        InGameDebug.Log($"[CP 1] Resetting Join UI.");
         _isJoining = false;
         if (_joiningIndicator != null) _joiningIndicator.SetActive(false);
         if (_joinButton != null) _joinButton.interactable = true;
