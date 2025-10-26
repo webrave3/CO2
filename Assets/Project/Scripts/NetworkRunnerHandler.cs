@@ -151,7 +151,8 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     // It replaces your old method entirely.
     // It does NOT call RefreshSessionList.
     // It uses SessionProperties as a matchmaking filter to find the game with the matching Hash.
-    public async Task StartClientGameByHash(string roomCode)
+    // --- MODIFICATION (STEP 1): Changed return type from 'Task' to 'Task<bool>' ---
+    public async Task<bool> StartClientGameByHash(string roomCode)
     {
         InGameDebug.Log($"--- [DIRECT JOIN] StartClientGameByHash ---");
         InGameDebug.Log($"Received roomCode: '{roomCode}' (Target Hash)");
@@ -159,7 +160,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         if (string.IsNullOrEmpty(roomCode))
         {
             InGameDebug.Log($"[DIRECT JOIN] Room code is empty. Aborting.");
-            return;
+            return false; // --- MODIFICATION (STEP 1): Return failure
         }
 
         try
@@ -208,18 +209,22 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
                 {
                     SessionDisplayName = _runner.SessionInfo.Name;
                 }
+                _isJoining = false;
+                return true; // --- MODIFICATION (STEP 1): Return success
             }
             else
             {
                 InGameDebug.Log($"[DIRECT JOIN] StartGame FAILED: {result.ShutdownReason}");
+                _isJoining = false;
+                return false; // --- MODIFICATION (STEP 1): Return failure
             }
-            _isJoining = false;
         }
         catch (Exception ex)
         {
             InGameDebug.Log($"[DIRECT JOIN] StartClientGameByHash EXCEPTION: {ex.Message}\nStackTrace: {ex.StackTrace}");
             _isJoining = false;
             if (_sceneManager != null) _sceneManager.enabled = true; // Re-enable on exception
+            return false; // --- MODIFICATION (STEP 1): Return failure
         }
     }
 
@@ -383,7 +388,8 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
         _availableSessions.Clear();
     }
 
-    public async Task StartClientGameBySessionInfo(SessionInfo sessionInfo)
+    // --- MODIFICATION (STEP 1): Changed return type from 'Task' to 'Task<bool>' ---
+    public async Task<bool> StartClientGameBySessionInfo(SessionInfo sessionInfo)
     {
         InGameDebug.Log($"--- [CP 5] StartClientGameBySessionInfo ---");
         InGameDebug.Log($"Attempting to join session: '{sessionInfo.Name}'");
@@ -428,18 +434,22 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             {
                 InGameDebug.Log($"[CP 5] StartGame OK. SessionUniqueID: '{_runner.SessionInfo.Name}'");
                 SessionUniqueID = _runner.SessionInfo.Name;
+                _isJoining = false;
+                return true; // --- MODIFICATION (STEP 1): Return success
             }
             else
             {
                 InGameDebug.Log($"[CP 5] StartGame FAILED: {result.ShutdownReason}");
+                _isJoining = false;
+                return false; // --- MODIFICATION (STEP 1): Return failure
             }
-            _isJoining = false;
         }
         catch (Exception ex)
         {
             InGameDebug.Log($"[CP 5] StartGame EXCEPTION: {ex.Message}");
             _isJoining = false;
             if (_sceneManager != null) _sceneManager.enabled = true; // Re-enable on exception
+            return false; // --- MODIFICATION (STEP 1): Return failure
         }
     }
 
@@ -503,12 +513,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
                 runner.Spawn(_gameStateManagerPrefab);
             }
 
-            if (_vehiclePrefab != null && _vehiclePrefab.IsValid && FindFirstObjectByType<BasicVehicleController>() == null)
-            {
-                Vector3 vehicleSpawnPos = spawnPoint ? spawnPoint.position + spawnPoint.forward * 5f + Vector3.up * 0.5f : new
-Vector3(0, 0.5f, 5);
-                runner.Spawn(_vehiclePrefab, vehicleSpawnPos, Quaternion.identity);
-            }
+            // --- MODIFICATION (STEP 3): Vehicle spawning logic removed from here ---
         }
     }
 
@@ -633,7 +638,7 @@ Vector3(0, 0.5f, 5);
     public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) { }
     public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken) { }
     public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, ArraySegment<byte> data) { }
-    public void OnSceneLoadDone(NetworkRunner runner) { }
+
     public void OnSceneLoadStart(NetworkRunner runner) { }
     public void OnObjectEnterAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
     public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
@@ -655,4 +660,57 @@ Vector3(0, 0.5f, 5);
     }
 
     public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason) { }
+
+    // --- MODIFICATION (STEP 3): Added logic to OnSceneLoadDone ---
+    public void OnSceneLoadDone(NetworkRunner runner)
+    {
+        string currentSceneName = SceneManager.GetActiveScene().name;
+        InGameDebug.Log($"[OnSceneLoadDone] Callback triggered. IsServer: {runner.IsServer}. Loaded Scene: '{currentSceneName}'.");
+
+        // Check if we are the Server/Host
+        if (runner.IsServer)
+        {
+            // --- MODIFICATION: Check if the loaded scene is EITHER the Lobby OR the Game scene ---
+            if (currentSceneName == _lobbySceneName || currentSceneName == _gameSceneName)
+            {
+                InGameDebug.Log($"[OnSceneLoadDone] Server loaded a scene configured for spawning: '{currentSceneName}'. Checking for existing vehicle...");
+
+                // Check if a vehicle *already exists*
+                if (FindFirstObjectByType<NetworkedPrometeoCar>() == null)
+                {
+                    InGameDebug.Log("[OnSceneLoadDone] No vehicle found. Proceeding to spawn...");
+
+                    // Check if the prefab slot is assigned in the Inspector
+                    if (_vehiclePrefab != null)
+                    {
+                        // Check if the prefab is valid (has a NetworkObject)
+                        if (_vehiclePrefab.IsValid)
+                        {
+                            Transform spawnPoint = GetSpawnPoint();
+                            Vector3 vehicleSpawnPos = spawnPoint ? spawnPoint.position + spawnPoint.forward * 5f + Vector3.up * 0.5f : new Vector3(0, 0.5f, 5);
+
+                            InGameDebug.Log($"[OnSceneLoadDone] SUCCESS: Spawning vehicle prefab '{_vehiclePrefab}' at {vehicleSpawnPos}");
+                            runner.Spawn(_vehiclePrefab, vehicleSpawnPos, Quaternion.identity);
+                        }
+                        else
+                        {
+                            InGameDebug.Log($"[OnSceneLoadDone] ERROR: Vehicle Prefab is NOT VALID. Does the prefab have a NetworkObject component on its root?");
+                        }
+                    }
+                    else
+                    {
+                        InGameDebug.Log($"[OnSceneLoadDone] ERROR: _vehiclePrefab slot is EMPTY (None). Please assign your vehicle prefab in the NetworkRunnerHandler Inspector.");
+                    }
+                }
+                else
+                {
+                    InGameDebug.Log("[OnSceneLoadDone] SKIPPING SPAWN: A 'NetworkedPrometeoCar' already exists in the scene.");
+                }
+            }
+            else
+            {
+                InGameDebug.Log($"[OnSceneLoadDone] Server loaded scene '{currentSceneName}', which does NOT match _lobbySceneName ('{_lobbySceneName}') or _gameSceneName ('{_gameSceneName}'). No vehicle spawn.");
+            }
+        }
+    }
 }

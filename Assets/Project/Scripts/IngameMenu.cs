@@ -14,21 +14,14 @@ public class InGameMenu : MonoBehaviour
 
     [Header("Settings")]
     [SerializeField] private string _mainMenuSceneName = "MainMenu";
+    [SerializeField] private string _lobbySceneName = "Lobby"; // Assign your lobby scene name
+    [SerializeField] private string _gameSceneName = "Game";   // Assign your game scene name
 
     private NetworkRunnerHandler _networkHandler;
     private bool _isMenuVisible = false;
 
     private void Start()
     {
-        // If GameMenuManager exists, this script is redundant
-        if (GameMenuManager.Instance != null)
-        {
-            this.enabled = false; // Disable this component
-            if (_menuPanel != null) _menuPanel.SetActive(false); // Ensure panel is hidden
-            Destroy(gameObject); // Optional: Destroy this GameObject
-            return;
-        }
-
         _networkHandler = FindObjectOfType<NetworkRunnerHandler>();
 
         if (_menuPanel != null)
@@ -46,20 +39,26 @@ public class InGameMenu : MonoBehaviour
             _mainMenuButton.onClick.RemoveAllListeners();
             _mainMenuButton.onClick.AddListener(ReturnToMainMenu);
         }
-        // Settings button listener would go here if needed
+    }
+
+    // --- MODIFICATION: Added scene check ---
+    private void Update()
+    {
+        string currentScene = SceneManager.GetActiveScene().name;
+
+        // Only check for ESC key if we are in the Lobby or Game scene
+        if (currentScene == _lobbySceneName || currentScene == _gameSceneName)
+        {
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                ToggleMenu();
+            }
+        }
     }
 
     // Called by button or key press
     public void ToggleMenu()
     {
-        // If GameMenuManager now exists (e.g., loaded later), delegate to it
-        if (GameMenuManager.Instance != null)
-        {
-            GameMenuManager.Instance.ToggleMenu();
-            this.enabled = false; // Disable self
-            return;
-        }
-
         _isMenuVisible = !_isMenuVisible;
 
         if (_menuPanel != null)
@@ -73,14 +72,6 @@ public class InGameMenu : MonoBehaviour
 
     public void ReturnToMainMenu()
     {
-        // If GameMenuManager exists, delegate
-        if (GameMenuManager.Instance != null)
-        {
-            GameMenuManager.Instance.ReturnToMainMenu();
-            return;
-        }
-
-        // Fallback behavior
         if (_menuPanel != null)
             _menuPanel.SetActive(false);
 
@@ -100,7 +91,6 @@ public class InGameMenu : MonoBehaviour
         {
             var disconnectTask = _networkHandler.ShutdownGame();
             float startTime = Time.time;
-            // Wait for disconnect or timeout
             while (!disconnectTask.IsCompleted && Time.time - startTime < 3.0f)
             {
                 yield return null;

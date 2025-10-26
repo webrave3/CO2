@@ -27,7 +27,7 @@ Transform:
   m_GameObject: {fileID: 352620715926355705}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -0, y: 0, z: 0}
+  m_LocalPosition: {x: -0, y: 0.029, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -6025,6 +6025,7 @@ GameObject:
   - component: {fileID: 1543402916846073600}
   - component: {fileID: -5823356632542569642}
   - component: {fileID: 9132707896752105391}
+  - component: {fileID: -3626986867971344688}
   m_Layer: 6
   m_Name: Ambulance
   m_TagString: Untagged
@@ -6198,11 +6199,28 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::NetworkedPrometeoCar
   _exitPoint: {fileID: 2520360712050451401}
-  _interactionRadius: 2.5
+  _interactionRadius: 5
   _vehicleCamera: {fileID: 1216684706233438832}
   _vehicleAudioListener: {fileID: 8747284874582407300}
   _IsOccupied:
     _value: 0
+--- !u!114 &-3626986867971344688
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5952950068234953462}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7b5a1ff9dee264bfd829a39e6542dcbd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Fusion.Addons.Physics::Fusion.Addons.Physics.RunnerSimulatePhysics3D
+  _physicsAuthority: 2
+  _physicsTiming: 3
+  ClientPhysicsSimulation: 0
+  DeltaTimeMultiplier: 1
+  SetUnityFixedTimestep: 0
 --- !u!1 &6308172195292683754
 GameObject:
   m_ObjectHideFlags: 0

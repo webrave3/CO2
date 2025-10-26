@@ -94,12 +94,11 @@ public class RoomCodeUI : MonoBehaviour
         _feedbackCoroutine = null;
     }
 
+    // --- MODIFICATION: This function is now much simpler and more reliable ---
     private async void JoinRoomByCode()
     {
-        // --- 🔴 CHECKPOINT 1 ---
         InGameDebug.Log($"--- [CP 1] JoinRoomByCode ---");
         InGameDebug.Log($"Input field value: '{_roomCodeInput.text}'");
-        // --- END CHECKPOINT ---
 
         if (_isJoining || _networkRunnerHandler == null || _roomCodeInput == null) return;
 
@@ -122,25 +121,25 @@ public class RoomCodeUI : MonoBehaviour
         try
         {
             InGameDebug.Log($"[CP 1] Calling StartClientGameByHash...");
-            await _networkRunnerHandler.StartClientGameByHash(roomCode);
-            InGameDebug.Log($"[CP 1] StartClientGameByHash returned.");
 
-            // Check if join succeeded after a short delay (scene change handles success)
-            await System.Threading.Tasks.Task.Delay(1000); // Wait 1 second
-            InGameDebug.Log($"[CP 1] Post-join check (1s delay).");
+            // 1. Await the join attempt and get the true/false result
+            bool joinSucceeded = await _networkRunnerHandler.StartClientGameByHash(roomCode);
 
-            if (_isJoining && // Still in joining state?
-                (_networkRunnerHandler.Runner == null || !_networkRunnerHandler.Runner.IsRunning || string.IsNullOrEmpty(_networkRunnerHandler.SessionUniqueID)))
+            InGameDebug.Log($"[CP 1] StartClientGameByHash returned: {joinSucceeded}");
+
+            // 2. Check the result
+            if (joinSucceeded)
             {
-                InGameDebug.Log($"[CP 1] Post-join check FAILED. Runner not running or no SessionID.");
-                ShowErrorMessage("Could not find or join game with that code");
-                ResetJoiningUI();
+                // Success! Scene will change.
+                InGameDebug.Log($"[CP 1] Join Succeeded. Scene should change.");
+                ResetJoiningUI(); // Reset for when we return to main menu
             }
-            else if (_isJoining)
+            else
             {
-                InGameDebug.Log($"[CP 1] Post-join check SUCCESS (or scene changed).");
-                // Connected or scene changed, just reset UI state silently
-                ResetJoiningUI();
+                // Failure!
+                InGameDebug.Log($"[CP 1] Join FAILED. Showing error.");
+                ShowErrorMessage("Could not find or join game with that code");
+                ResetJoiningUI(); // Reset UI so user can try again
             }
         }
         catch (System.Exception ex) // Catch potential exceptions during StartClientGameByHash

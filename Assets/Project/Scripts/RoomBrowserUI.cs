@@ -79,6 +79,7 @@ public class RoomBrowserUI : MonoBehaviour
         else ShowStatusMessage("Network system not available", Color.red);
     }
 
+    // --- MODIFICATION: This function is now much simpler and more reliable ---
     private async void OnDirectJoinClicked()
     {
         if (_isJoining) return;
@@ -95,46 +96,49 @@ public class RoomBrowserUI : MonoBehaviour
             return;
         }
 
-        _isJoining = true;
-        if (_joiningIndicator != null) _joiningIndicator.SetActive(true);
-        if (_directJoinButton != null) _directJoinButton.interactable = false;
-        ShowStatusMessage($"Joining room: {roomCode}...", Color.white);
+        // 1. Set UI to "joining" state
+        SetJoiningState(true, $"Joining room: {roomCode}...");
 
         try
         {
-            await _networkRunnerHandler.StartClientGameByHash(roomCode);
-            // Success is handled by scene change, check for failure after a delay
-            StartCoroutine(CheckJoinResult());
+            // 2. Await the join attempt and get the true/false result
+            bool joinSucceeded = await _networkRunnerHandler.StartClientGameByHash(roomCode);
+
+            // 3. Check the result
+            if (joinSucceeded)
+            {
+                // Success! The NetworkRunnerHandler will change the scene.
+                // We can just reset the UI in case the user returns.
+                SetJoiningState(false);
+            }
+            else
+            {
+                // Failure! Show an error and reset the UI so the user can try again.
+                ShowStatusMessage("Failed to find or connect to game with that code", Color.red);
+                SetJoiningState(false);
+            }
         }
         catch (Exception ex)
         {
+            // Catch any other unexpected errors
             ShowStatusMessage($"Error joining: {ex.Message}", Color.red);
-            ResetJoiningState();
+            SetJoiningState(false);
         }
     }
 
-    private IEnumerator CheckJoinResult()
-    {
-        yield return new WaitForSeconds(2.0f); // Increased delay
-        if (_networkRunnerHandler != null && (_networkRunnerHandler.Runner == null || !_networkRunnerHandler.Runner.IsRunning || string.IsNullOrEmpty(_networkRunnerHandler.SessionUniqueID)) && _isJoining)
-        {
-            // Only show failure if we are still in the 'joining' state and not connected
-            ShowStatusMessage("Failed to find or connect to game with that code", Color.red);
-            ResetJoiningState();
-        }
-        else if (_isJoining)
-        {
-            // If still joining but connected, reset state without error
-            ResetJoiningState();
-        }
-    }
+    // --- REMOVED: The CheckJoinResult() coroutine is no longer needed. ---
 
-
-    private void ResetJoiningState()
+    // --- RENAMED: from ResetJoiningState to SetJoiningState ---
+    private void SetJoiningState(bool isJoining, string statusMessage = "")
     {
-        _isJoining = false;
-        if (_joiningIndicator != null) _joiningIndicator.SetActive(false);
-        if (_directJoinButton != null) _directJoinButton.interactable = true;
+        _isJoining = isJoining;
+        if (_joiningIndicator != null) _joiningIndicator.SetActive(isJoining);
+        if (_directJoinButton != null) _directJoinButton.interactable = !isJoining;
+
+        if (isJoining && !string.IsNullOrEmpty(statusMessage))
+        {
+            ShowStatusMessage(statusMessage, Color.white, 0); // Show persistent status
+        }
     }
 
     public async void RefreshRoomList()
@@ -229,28 +233,36 @@ public class RoomBrowserUI : MonoBehaviour
         }
     }
 
-
+    // --- MODIFICATION: This function is now much simpler and more reliable ---
     private async void JoinSession(SessionInfo sessionInfo)
     {
         if (_networkRunnerHandler == null || _isJoining) return;
 
-        _isJoining = true;
-        if (_joiningIndicator != null) _joiningIndicator.SetActive(true);
         string sessionHash = sessionInfo.Properties.TryGetValue("Hash", out var hashObj) ? hashObj.PropertyValue.ToString() : "N/A";
-        ShowStatusMessage($"Joining {sessionHash}...", Color.white);
+        SetJoiningState(true, $"Joining {sessionHash}...");
 
         try
         {
-            await _networkRunnerHandler.StartClientGameBySessionInfo(sessionInfo);
-            // On successful join, scene should change. If not, CheckJoinResult will handle failure.
-            // Consider hiding the panel optimistically:
-            // if (_joinGamePanel != null) _joinGamePanel.SetActive(false);
-            StartCoroutine(CheckJoinResult()); // Check for failure after delay
+            // 1. Await the join attempt
+            bool joinSucceeded = await _networkRunnerHandler.StartClientGameBySessionInfo(sessionInfo);
+
+            // 2. Check the result
+            if (joinSucceeded)
+            {
+                // Success! Scene will change.
+                SetJoiningState(false);
+            }
+            else
+            {
+                // Failure!
+                ShowStatusMessage("Failed to join the selected game.", Color.red);
+                SetJoiningState(false);
+            }
         }
         catch (Exception ex)
         {
             ShowStatusMessage($"Failed to join: {ex.Message}", Color.red);
-            ResetJoiningState();
+            SetJoiningState(false);
         }
     }
 
