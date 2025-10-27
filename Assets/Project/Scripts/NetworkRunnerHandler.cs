@@ -3,714 +3,796 @@ using Fusion;
 using Fusion.Sockets;
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Linq; // Required for Linq filtering
 using System.Threading.Tasks;
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
+// Keep INetworkRunnerCallbacks interface
 public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
 {
-    [Header("Network References")]
+    [Header("Network Prefabs")]
     [SerializeField] private NetworkPrefabRef _playerPrefab;
     [SerializeField] private NetworkPrefabRef _gameStateManagerPrefab;
-    [SerializeField] private NetworkPrefabRef _vehiclePrefab; // Vehicle prefab reference
+    [SerializeField] private NetworkPrefabRef _vehiclePrefab;
 
     [Header("Scene Settings")]
     [SerializeField] private string _lobbySceneName = "Lobby";
     [SerializeField] private string _gameSceneName = "Game";
+    [SerializeField] private string _mainMenuSceneName = "MainMenu"; // Added for shutdown return
 
     [Header("Network Settings")]
-    [SerializeField] private int _maxPlayers = 6;
-    // We no longer need a region string here, it's set in PhotonAppSettings
+    [SerializeField] private int _maxPlayers = 4; // Adjusted to your game's player count
 
-    // Session information
+    // Session information tracked by the handler
     public string SessionDisplayName { get; private set; }
-    public string SessionUniqueID { get; private set; }
-    public string SessionHash { get; private set; }
+    public string SessionUniqueID { get; private set; } // Internal Photon session name
+    public string SessionHash { get; private set; }     // Your short, user-friendly code
     public long SessionStartTime { get; private set; }
 
+    // Runtime references
     private Dictionary<PlayerRef, NetworkObject> _spawnedCharacters = new Dictionary<PlayerRef, NetworkObject>();
     private NetworkRunner _runner;
     private NetworkSceneManagerDefault _sceneManager;
 
-    // TaskCompletionSource to properly wait for the session list
+    // Session list handling
     private TaskCompletionSource<bool> _sessionListTask;
-
-    // Store available sessions locally
     private List<SessionInfo> _availableSessions = new List<SessionInfo>();
-    private bool _isJoining = false;
+    private bool _isJoining = false; // Flag to prevent multiple join attempts
 
-    public bool IsSessionActive => _runner != null && _runner.IsRunning;
+    // Public properties
     public NetworkRunner Runner => _runner;
+    public bool IsSessionActive => _runner != null && _runner.IsRunning;
+    public List<SessionInfo> GetAvailableSessions() => new List<SessionInfo>(_availableSessions); // Return a copy
 
-
-    public List<SessionInfo> GetAvailableSessions() => new List<SessionInfo>(_availableSessions);
 
     private void Awake()
     {
-        InGameDebug.Log("NetworkRunnerHandler Awake.");
-        Debug.Log("NetworkRunnerHandler Awake: Instance is being set.");
+        Debug.Log("NetworkRunnerHandler Awake: Initializing...");
 
-        _runner = GetComponent<NetworkRunner>();
-        if (_runner == null)
+        // Ensure only one instance exists (basic singleton pattern)
+        if (FindObjectsByType<NetworkRunnerHandler>(FindObjectsSortMode.None).Length > 1 && transform.parent == null)
         {
-            Debug.Log("NetworkRunnerHandler Awake: Runner component not found, adding it.");
-            _runner = gameObject.AddComponent<NetworkRunner>();
-        }
-        else
-        {
-            Debug.Log("NetworkRunnerHandler Awake: Runner component found.");
-        }
-
-        _runner.AddCallbacks(this);
-
-        _sceneManager = GetComponent<NetworkSceneManagerDefault>();
-        if (_sceneManager == null)
-        {
-            Debug.Log("NetworkRunnerHandler Awake: SceneManager component not found, adding it.");
-            _sceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>();
-        }
-        else
-        {
-            Debug.Log("NetworkRunnerHandler Awake: SceneManager component found.");
-        }
-    }
-
-    private void Start()
-    {
-        if (FindObjectsByType<NetworkRunnerHandler>(FindObjectsSortMode.None).Length > 1)
-        {
+            Debug.LogWarning("NetworkRunnerHandler Awake: Duplicate instance detected. Destroying self.");
             Destroy(gameObject);
             return;
         }
-        if (transform.parent == null) DontDestroyOnLoad(gameObject);
+
+        // Setup NetworkRunner
+        _runner = GetComponent<NetworkRunner>();
+        if (_runner == null) { _runner = gameObject.AddComponent<NetworkRunner>(); Debug.Log("Added NetworkRunner component."); }
+        _runner.AddCallbacks(this); // Register callbacks
+
+        // Setup Scene Manager
+        _sceneManager = GetComponent<NetworkSceneManagerDefault>();
+        if (_sceneManager == null) { _sceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>(); Debug.Log("Added NetworkSceneManagerDefault component."); }
+
+        if (transform.parent == null) DontDestroyOnLoad(gameObject); // Persist across scenes if it's a root object
+        Debug.Log("NetworkRunnerHandler Awake: Initialization complete.");
     }
 
-    public async Task StartHostGame(string sessionName, string region = "auto", bool allowAllRegions = true)
+    // --- MODIFIED: StartHostGame now accepts visibility and custom properties ---
+    public async Task StartHostGame(string sessionNameBase, bool isVisible = true, Dictionary<string, SessionProperty> customProps = null)
     {
+        Debug.Log($"--- [HOST] StartHostGame ---");
+        Debug.Log($"SessionName base: '{sessionNameBase}', IsVisible: {isVisible}");
+
         try
         {
-            InGameDebug.Log($"--- [HOST] StartHostGame ---");
-            InGameDebug.Log($"SessionName base: '{sessionName}'");
-
-            await ResetNetworkRunner();
+            await ResetNetworkRunner(); // Ensure a clean runner
             _runner.ProvideInput = true;
-            SetupSessionCode(sessionName);
 
-            InGameDebug.Log($"[HOST] SessionCode setup. Hash: '{SessionHash}', UniqueID: '{SessionUniqueID}'");
+            // Generate session codes/IDs using SessionCodeManager (make sure it's in the scene or accessible)
+            SetupSessionCode(sessionNameBase);
+            Debug.Log($"[HOST] SessionCode setup. Hash: '{SessionHash}', UniqueID: '{SessionUniqueID}'");
 
+            // --- Prepare Session Properties ---
+            // Start with mandatory properties
             Dictionary<string, SessionProperty> sessionProps = new Dictionary<string, SessionProperty>
-            { { "DisplayName", SessionDisplayName }, { "Hash", SessionHash }, { "StartTime", (int)SessionStartTime } };
+            {
+                { "DisplayName", SessionDisplayName },
+                { "Hash", SessionHash }, // Your user-friendly code
+                { "StartTime", (int)SessionStartTime }
+                // Add your custom properties passed in
+            };
+            if (customProps != null)
+            {
+                foreach (var prop in customProps)
+                {
+                    if (!sessionProps.ContainsKey(prop.Key)) // Avoid overwriting base props
+                    {
+                        sessionProps.Add(prop.Key, prop.Value);
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[HOST] Custom property key '{prop.Key}' conflicts with a base property. Ignoring custom value.");
+                    }
+                }
+            }
+            // Add Region if needed (though often handled by AppSettings)
+            // sessionProps.Add("Region", runner.SessionInfo?.Region ?? "unknown");
 
-            // Region is now handled by PhotonAppSettings
+
+            // Log the properties being sent
+            Debug.Log($"[HOST] StartGame Args - Properties to send:");
+            foreach (var prop in sessionProps) { Debug.Log($"  > Key: '{prop.Key}', Value: '{prop.Value?.PropertyValue}'"); }
 
             var startGameArgs = new StartGameArgs()
             {
                 GameMode = GameMode.Host,
-                SessionName = SessionUniqueID,
+                SessionName = SessionUniqueID, // Use the internal unique ID for Photon SessionName
                 SceneManager = _sceneManager,
-                SessionProperties = sessionProps, // We will log these next
+                SessionProperties = sessionProps,
                 PlayerCount = _maxPlayers,
-                IsVisible = true,
-                IsOpen = true
+                IsVisible = isVisible, // Control if it appears in public listings
+                IsOpen = true         // Allow players to join
+                // Scene = SceneRef.FromIndex(SceneUtility.GetBuildIndexByScenePath($"Assets/Project/Scenes/{_lobbySceneName}.unity")) // Optional: Load scene directly
             };
 
-            // --- 🟢 NEW LOG: Verify Session Properties Being Sent 🟢 ---
-            InGameDebug.Log($"[HOST] StartGame Args - Properties to send:");
-            foreach (var prop in startGameArgs.SessionProperties)
-            {
-                InGameDebug.Log($"  > Key: '{prop.Key}', Value: '{prop.Value}'");
-            }
-            // --- 🟢 END NEW LOG 🟢 ---
-
-            InGameDebug.Log($"[HOST] Calling StartGame. Mode: '{startGameArgs.GameMode}', SessionName: '{startGameArgs.SessionName}'");
-
+            Debug.Log($"[HOST] Calling StartGame...");
             var result = await _runner.StartGame(startGameArgs);
+
             if (result.Ok)
             {
-                InGameDebug.Log($"[HOST] StartGame OK. Loading lobby scene...");
+                Debug.Log($"[HOST] StartGame OK. Runner Active. Session: '{_runner.SessionInfo?.Name}'");
+                // Save session info if needed for reconnects (optional)
                 PlayerPrefs.SetString("LastSessionID", SessionUniqueID);
                 PlayerPrefs.SetString("LastSessionHash", SessionHash);
                 PlayerPrefs.SetString("LastSessionName", SessionDisplayName);
                 PlayerPrefs.Save();
-                await LoadScene(_lobbySceneName);
+                // Scene loading is now often handled by NetworkSceneManager automatically if Scene is set in args,
+                // or you can load manually after StartGame succeeds.
+                await LoadScene(_lobbySceneName); // Example: Manually load lobby scene
             }
             else
             {
-                InGameDebug.Log($"[HOST] StartGame FAILED: {result.ShutdownReason}");
+                Debug.LogError($"[HOST] StartGame FAILED: {result.ShutdownReason}");
+                await ResetNetworkRunner(); // Clean up failed runner
             }
         }
         catch (Exception ex)
         {
-            InGameDebug.Log($"[HOST] StartGame EXCEPTION: {ex.Message}");
+            Debug.LogError($"[HOST] StartGame EXCEPTION: {ex.Message}\n{ex.StackTrace}");
+            await ResetNetworkRunner(); // Clean up on exception
         }
     }
 
-    // --- THIS IS THE 100% CORRECTED METHOD FOR DIRECT JOIN ---
-    // It replaces your old method entirely.
-    // It does NOT call RefreshSessionList.
-    // It uses SessionProperties as a matchmaking filter to find the game with the matching Hash.
-    // --- MODIFICATION (STEP 1): Changed return type from 'Task' to 'Task<bool>' ---
+    // --- Direct Join by Hash/Code (Corrected Implementation) ---
     public async Task<bool> StartClientGameByHash(string roomCode)
     {
-        InGameDebug.Log($"--- [DIRECT JOIN] StartClientGameByHash ---");
-        InGameDebug.Log($"Received roomCode: '{roomCode}' (Target Hash)");
+        Debug.Log($"--- [DIRECT JOIN] StartClientGameByHash ---");
+        Debug.Log($"Received roomCode: '{roomCode}' (Target Hash)");
 
         if (string.IsNullOrEmpty(roomCode))
         {
-            InGameDebug.Log($"[DIRECT JOIN] Room code is empty. Aborting.");
-            return false; // --- MODIFICATION (STEP 1): Return failure
+            Debug.LogWarning($"[DIRECT JOIN] Room code is empty. Aborting.");
+            return false;
         }
+        if (_isJoining) { Debug.LogWarning("[DIRECT JOIN] Already attempting to join. Aborting."); return false; }
 
+        _isJoining = true;
         try
         {
-            // 1. Get a clean runner.
             await ResetNetworkRunner();
             _runner.ProvideInput = true;
-            _isJoining = true;
 
-            // 2. Create a filter to find a session with a matching "Hash" property
-            var sessionPropsFilter = new Dictionary<string, SessionProperty>
-            {
-                { "Hash", roomCode }
-            };
+            // Create a filter to find a session with a matching "Hash" property
+            var sessionPropsFilter = new Dictionary<string, SessionProperty> { { "Hash", roomCode } };
 
-            // 3. Re-enable the scene manager
-            InGameDebug.Log($"[DIRECT JOIN] Re-enabling NetworkSceneManager component.");
-            if (_sceneManager != null) _sceneManager.enabled = true;
-
-            // 4. Start game in Client mode.
-            //    - SessionName = null: Tells Fusion to search for a game.
-            //    - SessionProperties = sessionPropsFilter: Tells Fusion to only find games that match this filter.
+            // Start game in Client mode, using the filter
             var startGameArgs = new StartGameArgs()
             {
                 GameMode = GameMode.Client,
-                SessionName = null, // Null = Join random/filtered game
+                SessionName = null, // Null = Join using filter or random (if no filter)
                 SceneManager = _sceneManager,
-                SessionProperties = sessionPropsFilter // <-- THIS IS THE MATCHMAKING FILTER
+                SessionProperties = sessionPropsFilter // The matchmaking filter
             };
 
-            InGameDebug.Log($"[DIRECT JOIN] Calling StartGame to FIND session with Hash: '{roomCode}'");
+            Debug.Log($"[DIRECT JOIN] Calling StartGame to FIND session with Hash: '{roomCode}'");
             var result = await _runner.StartGame(startGameArgs);
 
-            if (result.Ok && _runner.SessionInfo != null)
+            if (result.Ok && _runner != null && _runner.SessionInfo != null)
             {
-                InGameDebug.Log($"[DIRECT JOIN] StartGame OK. Joined session: '{_runner.SessionInfo.Name}'");
-
-                // Manually set the session info we have
-                SessionUniqueID = _runner.SessionInfo.Name;
-                SessionHash = roomCode; // We know this
-                if (_runner.SessionInfo.Properties.TryGetValue("DisplayName", out var displayNameObj))
-                {
-                    SessionDisplayName = displayNameObj.PropertyValue.ToString();
-                }
-                else
-                {
-                    SessionDisplayName = _runner.SessionInfo.Name;
-                }
+                Debug.Log($"[DIRECT JOIN] StartGame OK. Joined session: '{_runner.SessionInfo.Name}'");
+                // Store joined session info locally
+                UpdateLocalSessionInfoFromRunner();
                 _isJoining = false;
-                return true; // --- MODIFICATION (STEP 1): Return success
+                // Scene should load automatically via NetworkSceneManager or callbacks
+                return true;
             }
             else
             {
-                InGameDebug.Log($"[DIRECT JOIN] StartGame FAILED: {result.ShutdownReason}");
+                Debug.LogError($"[DIRECT JOIN] StartGame FAILED: {result.ShutdownReason}");
+                await ResetNetworkRunner(); // Clean up failed runner
                 _isJoining = false;
-                return false; // --- MODIFICATION (STEP 1): Return failure
+                return false;
             }
         }
         catch (Exception ex)
         {
-            InGameDebug.Log($"[DIRECT JOIN] StartClientGameByHash EXCEPTION: {ex.Message}\nStackTrace: {ex.StackTrace}");
+            Debug.LogError($"[DIRECT JOIN] StartClientGameByHash EXCEPTION: {ex.Message}\n{ex.StackTrace}");
+            await ResetNetworkRunner(); // Clean up on exception
             _isJoining = false;
-            if (_sceneManager != null) _sceneManager.enabled = true; // Re-enable on exception
-            return false; // --- MODIFICATION (STEP 1): Return failure
+            return false;
         }
     }
 
 
-    // This is your original method, which you don't use, but is now fixed to not cause compile errors.
-    public async Task RefreshSessionList()
+    // --- Join specific game using SessionInfo (Used by Matchmaking) ---
+    public async Task<bool> StartClientGameBySessionInfo(SessionInfo sessionInfo)
     {
-        InGameDebug.Log($"--- RefreshSessionList ---");
-        Debug.Log("RefreshSessionList (Lobby Approach): Starting...");
+        Debug.Log($"--- [MATCH JOIN] StartClientGameBySessionInfo ---");
+        Debug.Log($"Attempting to join session: '{sessionInfo.Name}'");
 
-        if (_runner != null)
+        if (sessionInfo == null) { Debug.LogError("[MATCH JOIN] SessionInfo is null."); return false; }
+        if (_isJoining) { Debug.LogWarning("[MATCH JOIN] Already attempting to join. Aborting."); return false; }
+
+        _isJoining = true;
+        try
         {
-            if (!_runner.IsUnityNull())
+            // If we were just querying the list, the runner might be in lobby mode. Shut it down first.
+            if (_runner != null && (_runner.IsRunning || _runner.IsCloudReady))
             {
-                if (_runner.IsRunning || _runner.IsCloudReady || !_runner.IsShutdown)
-                {
-                    InGameDebug.Log($"[Refresh] Runner is active. Shutting down...");
-                    await _runner.Shutdown();
-                    await Task.Delay(200);
-                }
-                InGameDebug.Log($"[Refresh] Destroying existing runner component.");
-                Destroy(_runner);
-                await Task.Yield();
-                _runner = null;
+                Debug.Log($"[MATCH JOIN] Shutting down existing runner before joining specific session.");
+                await _runner.Shutdown();
+                await Task.Delay(200); // Small delay after shutdown
+            }
+
+            // Ensure we have a runner instance (might have been destroyed by shutdown)
+            if (_runner == null || _runner.IsShutdown)
+            {
+                Debug.LogWarning("[MATCH JOIN] Runner was shut down or null. Re-adding component.");
+                _runner = GetComponent<NetworkRunner>() ?? gameObject.AddComponent<NetworkRunner>();
+                _runner.AddCallbacks(this); // Re-add callbacks if runner was re-created
+            }
+
+            _runner.ProvideInput = true;
+
+            // Start game in Client mode targeting the specific SessionName
+            var startGameArgs = new StartGameArgs()
+            {
+                GameMode = GameMode.Client,
+                SessionName = sessionInfo.Name, // Target the specific session
+                SceneManager = _sceneManager
+            };
+
+            Debug.Log($"[MATCH JOIN] Calling StartGame. Mode: '{startGameArgs.GameMode}', SessionName: '{startGameArgs.SessionName}'");
+            var result = await _runner.StartGame(startGameArgs);
+
+            if (result.Ok && _runner != null && _runner.SessionInfo != null)
+            {
+                Debug.Log($"[MATCH JOIN] StartGame OK. Joined Session: '{_runner.SessionInfo.Name}'");
+                UpdateLocalSessionInfoFromRunner(); // Store joined session info
+                _isJoining = false;
+                // Scene should load automatically
+                return true;
             }
             else
             {
-                InGameDebug.Log($"[Refresh] _runner was already null or destroyed.");
-                _runner = null;
+                Debug.LogError($"[MATCH JOIN] StartGame FAILED: {result.ShutdownReason}");
+                await ResetNetworkRunner(); // Clean up failed runner
+                _isJoining = false;
+                return false;
             }
         }
-
-        if (_runner == null)
+        catch (Exception ex)
         {
-            InGameDebug.Log($"[Refresh] Adding new runner component for discovery.");
-            _runner = gameObject.AddComponent<NetworkRunner>();
-            _runner.AddCallbacks(this);
+            Debug.LogError($"[MATCH JOIN] StartClientGameBySessionInfo EXCEPTION: {ex.Message}\n{ex.StackTrace}");
+            await ResetNetworkRunner(); // Clean up on exception
+            _isJoining = false;
+            return false;
         }
-        else
+    }
+
+
+    // --- NEW: Matchmaking Method ---
+    /// <summary>
+    /// Attempts to find a suitable public game based on filters and join it.
+    /// </summary>
+    /// <param name="filters">Dictionary of SessionProperties to filter by (e.g., "lang" = "English"). Can be null or empty for no filtering.</param>
+    /// <returns>True if a suitable game was found and the joining process was started, false otherwise.</returns>
+    public async Task<bool> FindAndJoinPublicGame(Dictionary<string, SessionProperty> filters = null)
+    {
+        Debug.Log("--- [MATCHMAKING] FindAndJoinPublicGame ---");
+        if (_isJoining) { Debug.LogWarning("[MATCHMAKING] Already attempting to join/host. Aborting."); return false; }
+
+        _isJoining = true; // Set joining flag early
+        try
         {
-            InGameDebug.Log($"[Refresh] ERROR: _runner was NOT null!");
-            return;
+            // 1. Refresh the session list
+            Debug.Log("[MATCHMAKING] Refreshing session list...");
+            bool refreshSuccess = await RefreshSessionList(); // Ensure RefreshSessionList returns success/failure
+            if (!refreshSuccess)
+            {
+                Debug.LogError("[MATCHMAKING] Failed to refresh session list.");
+                _isJoining = false;
+                return false;
+            }
+            // Optional delay might still be useful depending on Photon timings
+            await Task.Delay(500);
+
+            // 2. Get the latest list (populated by OnSessionListUpdated)
+            List<SessionInfo> currentSessions = GetAvailableSessions();
+            Debug.Log($"[MATCHMAKING] Found {currentSessions.Count} sessions after refresh.");
+
+            // 3. Filter the list
+            List<SessionInfo> potentialMatches = currentSessions.Where(session =>
+            {
+                // Basic checks
+                if (!session.IsVisible || !session.IsOpen || session.PlayerCount >= session.MaxPlayers) return false;
+
+                // Apply custom filters
+                if (filters != null && filters.Count > 0)
+                {
+                    foreach (var filter in filters)
+                    {
+                        if (!session.Properties.TryGetValue(filter.Key, out SessionProperty sessionValue) ||
+                            !Equals(sessionValue?.PropertyValue, filter.Value?.PropertyValue)) // Check for null property value too
+                        {
+                            return false; // Property missing or value doesn't match
+                        }
+                    }
+                }
+                return true; // Passed all checks
+
+            }).ToList();
+
+            Debug.Log($"[MATCHMAKING] Found {potentialMatches.Count} potential matches after filtering.");
+
+            // 4. Select and join a match
+            if (potentialMatches.Count > 0)
+            {
+                // Simple selection: take the first one. Could add sorting later (e.g., by player count).
+                SessionInfo bestMatch = potentialMatches[0];
+                Debug.Log($"[MATCHMAKING] Attempting to join session: {bestMatch.Name}");
+
+                // Use the specific join method
+                bool joinStarted = await StartClientGameBySessionInfo(bestMatch);
+
+                // StartClientGameBySessionInfo now handles _isJoining flag on its own path.
+                // We return the result directly. If it failed, _isJoining should be false.
+                return joinStarted;
+            }
+            else
+            {
+                Debug.Log("[MATCHMAKING] No suitable public games found matching criteria.");
+                _isJoining = false; // Reset flag as no join was attempted
+                return false; // No match found
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[MATCHMAKING] FindAndJoinPublicGame EXCEPTION: {ex.Message}\n{ex.StackTrace}");
+            await ResetNetworkRunner(); // Clean up on exception
+            _isJoining = false;
+            return false;
+        }
+    }
+
+
+    // --- Refreshes the session list by joining the lobby ---
+    // Returns true if lobby join started successfully AND list was received, false otherwise.
+    public async Task<bool> RefreshSessionList()
+    {
+        Debug.Log($"--- RefreshSessionList ---");
+
+        // Shutdown existing runner ONLY if it's NOT already just a Client (lobby)
+        // **** FIX 1: Use SimulationModes enum for comparison ****
+        if (_runner != null && _runner.IsRunning && _runner.Mode != SimulationModes.Client)
+        {
+            Debug.Log($"[Refresh] Runner is active in Mode '{_runner.Mode}'. Shutting down...");
+            await _runner.Shutdown();
+            await Task.Delay(200); // Give time for shutdown
+                                   // Destroying and recreating might be necessary if Shutdown doesn't fully clean up
+            Destroy(_runner);
+            await Task.Yield(); // Wait a frame for destroy to process
+            _runner = null;
         }
 
-        InGameDebug.Log($"[Refresh] Disabling NetworkSceneManager component.");
+        // Ensure we have a runner instance, create if needed
+        if (_runner == null || _runner.IsShutdown)
+        {
+            Debug.Log($"[Refresh] Runner is null or shutdown. Adding/re-adding component for lobby join.");
+            _runner = GetComponent<NetworkRunner>() ?? gameObject.AddComponent<NetworkRunner>();
+            _runner.AddCallbacks(this); // Ensure callbacks are registered
+        }
+
+        // --- Critical: Disable Scene Manager for Lobby Join ---
         if (_sceneManager != null) _sceneManager.enabled = false;
+        Debug.Log($"[Refresh] Disabled NetworkSceneManager component.");
 
-        // This is the original, non-erroring code.
-        var args = new StartGameArgs()
-        {
-            GameMode = GameMode.Client,
-            SessionName = null,
-            SceneManager = null
-            // CloudRegion property removed - THIS FIXES THE ERROR
-        };
-
-        _sessionListTask = new TaskCompletionSource<bool>();
+        _sessionListTask = new TaskCompletionSource<bool>(); // Reset task for waiting
 
         try
         {
-            InGameDebug.Log($"--- [CP 3] RefreshSessionList: Calling StartGame ---");
-            InGameDebug.Log($"[CP 3] Mode: '{args.GameMode}', SessionName: 'NULL', SceneManager: 'NULL'");
-            InGameDebug.Log($"[CP 3] This call should now only join the lobby.");
+            // Start game in Client mode with NULL session name to join the lobby
+            var args = new StartGameArgs()
+            {
+                GameMode = GameMode.Client,
+                SessionName = null, // JOIN LOBBY
+                SceneManager = null // DO NOT manage scenes when joining lobby
+                // **** FIX 2: Removed DisableClientSessionCreation ****
+                // Use AppSettings region by default
+            };
 
+            Debug.Log($"[Refresh] Calling StartGame to join lobby...");
             var result = await _runner.StartGame(args);
-
-            InGameDebug.Log($"[CP 3] Lobby Join StartGame result: Ok={result.Ok}, Reason={result.ShutdownReason}");
 
             if (!result.Ok)
             {
-                InGameDebug.Log($"[CP 3] FAILED to start client to join lobby: {result.ShutdownReason}");
-                if (_runner != null && !_runner.IsUnityNull() && !_runner.IsShutdown) await _runner.Shutdown();
-                if (_sceneManager != null) _sceneManager.enabled = true; // Re-enable on failure
-                _sessionListTask.TrySetResult(false); // Manually fail the task
-                return;
+                Debug.LogError($"[Refresh] FAILED to start client to join lobby: {result.ShutdownReason}");
+                if (_sceneManager != null) _sceneManager.enabled = true; // Re-enable scene manager on failure
+                _sessionListTask.TrySetResult(false);
+                await ResetNetworkRunner(); // Cleanup failed lobby runner
+                return false;
             }
 
-            InGameDebug.Log($"[CP 3] Client started for lobby join. Waiting for session list (30s timeout)...");
-
-            var timeoutTask = Task.Delay(30000); // 30 second timeout
+            Debug.Log($"[Refresh] Client started for lobby join. Waiting for session list (30s timeout)...");
+            // Wait for OnSessionListUpdated callback OR timeout
+            var timeoutTask = Task.Delay(30000);
             var completedTask = await Task.WhenAny(_sessionListTask.Task, timeoutTask);
 
-            // --- 🟢 NEW LOG: Check Task Status 🟢 ---
-            if (_sessionListTask.Task.IsCompletedSuccessfully)
+            if (completedTask == _sessionListTask.Task && _sessionListTask.Task.Result)
             {
-                InGameDebug.Log($"[CP 3 Post-Wait] SessionList Task Completed Successfully.");
-            }
-            else if (_sessionListTask.Task.IsCanceled)
-            {
-                InGameDebug.Log($"[CP 3 Post-Wait] SessionList Task Was Canceled (Likely Timeout).");
-            }
-            else if (_sessionListTask.Task.IsFaulted)
-            {
-                InGameDebug.Log($"[CP 3 Post-Wait] SessionList Task Faulted: {_sessionListTask.Task.Exception?.Message}");
+                Debug.Log($"[Refresh] Session list received successfully.");
+                return true; // Success!
             }
             else
             {
-                InGameDebug.Log($"[CP 3 Post-Wait] SessionList Task Status Unknown (Shouldn't happen).");
+                Debug.LogWarning($"[Refresh] Timed out or failed waiting for session list update.");
+                _sessionListTask.TrySetCanceled(); // Mark as canceled if timed out
+                                                   // Don't ResetNetworkRunner here, as the lobby connection might still be useful or shutdown elsewhere
+                return false; // Failure (timeout or explicit false result)
             }
-            // --- 🟢 END NEW LOG 🟢 ---
-
-            if (completedTask == _sessionListTask.Task && _sessionListTask.Task.Result == true)
-            {
-                InGameDebug.Log($"[CP 3] OnSessionListUpdated callback received! List populated.");
-            }
-            else
-            {
-                InGameDebug.Log($"[CP 3] Timed out waiting for session list update after 30s.");
-                _sessionListTask.TrySetCanceled();
-            }
-
-            InGameDebug.Log($"[CP 3] Finished waiting.");
-
         }
         catch (Exception ex)
         {
-            InGameDebug.Log($"[CP 3] RefreshSessionList EXCEPTION: {ex.Message}");
-            if (_runner != null && !_runner.IsUnityNull() && !_runner.IsShutdown)
-            {
-                await _runner.Shutdown();
-            }
+            Debug.LogError($"[Refresh] RefreshSessionList EXCEPTION: {ex.Message}\n{ex.StackTrace}");
             if (_sceneManager != null) _sceneManager.enabled = true; // Re-enable on exception
-            _sessionListTask.TrySetException(ex); // Fail the task
+            _sessionListTask.TrySetException(ex);
+            await ResetNetworkRunner(); // Cleanup on exception
+            return false;
         }
     }
 
+
+    // --- Utility to clean up and recreate the runner ---
     public async Task ResetNetworkRunner()
     {
-        InGameDebug.Log($"ResetNetworkRunner called.");
-        Debug.Log("ResetNetworkRunner: Called.");
-
+        Debug.Log($"ResetNetworkRunner called.");
         if (_runner != null)
         {
             if (_runner.IsRunning || _runner.IsCloudReady || !_runner.IsShutdown)
             {
-                InGameDebug.Log($"[Reset] Shutting down main runner...");
-                await _runner.Shutdown();
-                await Task.Delay(200);
+                Debug.Log($"[Reset] Shutting down existing runner...");
+                await _runner.Shutdown(destroyGameObject: false); // Shutdown without destroying host GO
+                await Task.Delay(200); // Allow time for shutdown process
             }
 
-            InGameDebug.Log($"[Reset] Destroying main runner component.");
-            Destroy(_runner);
-            await Task.Yield();
+            // Check if component still exists before destroying (Shutdown might handle it)
+            if (_runner != null && !_runner.IsUnityNull())
+            {
+                Debug.Log($"[Reset] Destroying runner component.");
+                Destroy(_runner);
+                await Task.Yield(); // Wait a frame for destroy
+            }
+            _runner = null;
         }
 
-        InGameDebug.Log($"[Reset] Adding new main runner component and callbacks.");
+        Debug.Log($"[Reset] Adding new runner component and callbacks.");
         _runner = gameObject.AddComponent<NetworkRunner>();
         _runner.AddCallbacks(this);
 
+        // --- Critical: Re-enable Scene Manager after reset ---
         if (_sceneManager != null)
         {
-            InGameDebug.Log($"[Reset] Ensuring SceneManager component is enabled.");
             _sceneManager.enabled = true;
+            Debug.Log($"[Reset] Ensured SceneManager component is enabled.");
+        }
+        else
+        {
+            Debug.LogWarning("[Reset] SceneManager component is null!");
         }
 
-        InGameDebug.Log($"[Reset] Clearing session info.");
+        // Clear local session state
         SessionDisplayName = string.Empty;
         SessionUniqueID = string.Empty;
         SessionHash = string.Empty;
         SessionStartTime = 0;
         _availableSessions.Clear();
+        _isJoining = false; // Reset joining flag
+        Debug.Log("[Reset] Cleared session info and reset joining flag.");
     }
 
-    // --- MODIFICATION (STEP 1): Changed return type from 'Task' to 'Task<bool>' ---
-    public async Task<bool> StartClientGameBySessionInfo(SessionInfo sessionInfo)
-    {
-        InGameDebug.Log($"--- [CP 5] StartClientGameBySessionInfo ---");
-        InGameDebug.Log($"Attempting to join session: '{sessionInfo.Name}'");
-
-        try
-        {
-            if (_runner == null)
-            {
-                InGameDebug.Log($"[CP 5] Runner is NULL. This is bad. Re-adding component.");
-                _runner = gameObject.AddComponent<NetworkRunner>();
-                _runner.AddCallbacks(this);
-            }
-            else
-            {
-                InGameDebug.Log($"[CP 5] Runner was not null.");
-            }
-
-            InGameDebug.Log($"[CP 5] Shutting down lobby-only runner before joining.");
-            await _runner.Shutdown();
-            await Task.Delay(100);
-
-            _runner.ProvideInput = true; _isJoining = true;
-
-            if (sessionInfo.Properties.TryGetValue("DisplayName", out var displayNameObj)) SessionDisplayName = displayNameObj.PropertyValue.ToString(); else SessionDisplayName = sessionInfo.Name;
-            if (sessionInfo.Properties.TryGetValue("Hash", out var hashObj)) SessionHash = hashObj.PropertyValue.ToString(); else SessionHash = ComputeSessionHash(sessionInfo.Name);
-
-            InGameDebug.Log($"[CP 5] Re-enabling NetworkSceneManager component.");
-            if (_sceneManager != null) _sceneManager.enabled = true;
-
-            var startGameArgs = new StartGameArgs()
-            {
-                GameMode = GameMode.Client,
-                SessionName = sessionInfo.Name,
-                SceneManager = _sceneManager
-                // CloudRegion property removed - THIS FIXES THE ERROR
-            };
-
-            InGameDebug.Log($"[CP 5] Calling StartGame. Mode: '{startGameArgs.GameMode}', SessionName: '{startGameArgs.SessionName}', SceneManager: 'EXISTS'");
-            var result = await _runner.StartGame(startGameArgs);
-
-            if (result.Ok && _runner.SessionInfo != null)
-            {
-                InGameDebug.Log($"[CP 5] StartGame OK. SessionUniqueID: '{_runner.SessionInfo.Name}'");
-                SessionUniqueID = _runner.SessionInfo.Name;
-                _isJoining = false;
-                return true; // --- MODIFICATION (STEP 1): Return success
-            }
-            else
-            {
-                InGameDebug.Log($"[CP 5] StartGame FAILED: {result.ShutdownReason}");
-                _isJoining = false;
-                return false; // --- MODIFICATION (STEP 1): Return failure
-            }
-        }
-        catch (Exception ex)
-        {
-            InGameDebug.Log($"[CP 5] StartGame EXCEPTION: {ex.Message}");
-            _isJoining = false;
-            if (_sceneManager != null) _sceneManager.enabled = true; // Re-enable on exception
-            return false; // --- MODIFICATION (STEP 1): Return failure
-        }
-    }
-
+    // --- Helper to setup session codes ---
     private void SetupSessionCode(string sessionNameBase)
     {
         SessionCodeManager scm = FindFirstObjectByType<SessionCodeManager>();
         if (scm == null)
         {
-            SessionHash = "NOHASH"; // Fallback
-            SessionUniqueID = Guid.NewGuid().ToString();
+            Debug.LogWarning("SessionCodeManager not found! Generating fallback codes.");
+            SessionHash = ComputeSessionHash(Guid.NewGuid().ToString()).Substring(0, 6).ToUpper(); // Simple random hash
+            SessionUniqueID = Guid.NewGuid().ToString(); // Internal Photon name needs to be unique
         }
         else
         {
-            SessionHash = scm.GenerateNewSessionCode();
-            SessionUniqueID = scm.GetInternalId(SessionHash);
+            SessionHash = scm.GenerateNewSessionCode(); // Your 6-char code
+            SessionUniqueID = scm.GetInternalId(SessionHash); // Get the unique ID Photon needs
         }
-        SessionDisplayName = string.IsNullOrEmpty(sessionNameBase) ? $"Session {SessionHash.Substring(0, 4)}" : sessionNameBase;
+        SessionDisplayName = string.IsNullOrEmpty(sessionNameBase) ? $"Session {SessionHash}" : sessionNameBase;
         SessionStartTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
     }
 
-    private string ComputeSessionHash(string input) // Simple hash for fallback
+    // --- Helper to update local session vars after joining ---
+    private void UpdateLocalSessionInfoFromRunner()
+    {
+        if (_runner == null || _runner.SessionInfo == null) return;
+
+        SessionUniqueID = _runner.SessionInfo.Name;
+        // Try get properties stored by host
+        if (_runner.SessionInfo.Properties.TryGetValue("Hash", out var hashObj)) SessionHash = hashObj?.PropertyValue?.ToString() ?? "N/A"; else SessionHash = "N/A";
+        if (_runner.SessionInfo.Properties.TryGetValue("DisplayName", out var displayNameObj)) SessionDisplayName = displayNameObj?.PropertyValue?.ToString() ?? SessionUniqueID; else SessionDisplayName = SessionUniqueID;
+        if (_runner.SessionInfo.Properties.TryGetValue("StartTime", out var startTimeObj) && startTimeObj.PropertyValue is int stVal) SessionStartTime = stVal; else SessionStartTime = 0;
+        Debug.Log($"Updated local session info: ID='{SessionUniqueID}', Hash='{SessionHash}', Name='{SessionDisplayName}'");
+    }
+
+    // Simple hash fallback if SessionCodeManager isn't used
+    private string ComputeSessionHash(string input)
     {
         if (string.IsNullOrEmpty(input)) return "NOHASH";
         using (System.Security.Cryptography.MD5 md5 = System.Security.Cryptography.MD5.Create())
         { byte[] inputBytes = System.Text.Encoding.ASCII.GetBytes(input); byte[] hashBytes = md5.ComputeHash(inputBytes); return BitConverter.ToString(hashBytes).Replace("-", "").Substring(0, 8); }
     }
 
+    // Load scene via runner if active
     public async Task LoadScene(string sceneName)
     {
-        if (_runner != null && _runner.IsRunning) { await _runner.LoadScene(sceneName); }
+        if (SceneUtility.GetBuildIndexByScenePath($"Assets/Project/Scenes/{sceneName}.unity") < 0)
+        {
+            Debug.LogError($"Scene '{sceneName}' not found in build settings!");
+            return;
+        }
+
+        if (_runner != null && _runner.IsRunning)
+        {
+            Debug.Log($"Runner loading scene: {sceneName}");
+            // Ensure Scene Manager is enabled before loading scenes via runner
+            if (_sceneManager != null) _sceneManager.enabled = true;
+            await _runner.LoadScene(sceneName);
+        }
+        else
+        {
+            Debug.LogWarning($"Runner not active, cannot load scene '{sceneName}' via runner.");
+            // Fallback or error handling needed?
+        }
     }
 
+    // Shutdown the current game/runner
     public async Task ShutdownGame()
     {
-        if (_runner != null && _runner.IsRunning) { await _runner.Shutdown(); }
+        Debug.Log("ShutdownGame called.");
+        if (_runner != null && _runner.IsRunning)
+        {
+            Debug.Log("Shutting down active runner...");
+            await _runner.Shutdown(destroyGameObject: false); // Shutdown runner, keep handler GO
+            // ResetNetworkRunner might be called automatically by OnShutdown callback
+        }
+        else
+        {
+            Debug.Log("No active runner to shut down.");
+            // Ensure we are back at main menu even if no runner was active
+            if (SceneManager.GetActiveScene().name != _mainMenuSceneName)
+            {
+                SceneManager.LoadScene(_mainMenuSceneName);
+            }
+        }
+        // Clear session info after shutdown
+        SessionDisplayName = string.Empty; SessionUniqueID = string.Empty; SessionHash = string.Empty; SessionStartTime = 0; _isJoining = false;
     }
 
-    public void ForceRefreshSessions() // Public method to trigger refresh
-    {
-        _ = RefreshSessionList(); // Fire-and-forget
-    }
+
+    // --- INetworkRunnerCallbacks Implementation ---
 
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
     {
-        string currentScene = SceneManager.GetActiveScene().name;
-        if ((currentScene == _lobbySceneName || currentScene == _gameSceneName) && runner.IsServer)
+        Debug.Log($"Player {player} joined.");
+        if (runner.IsServer) // Only server spawns objects
         {
-            Transform spawnPoint = GetSpawnPoint();
+            Debug.Log($"Spawning character for player {player}");
+            Transform spawnPoint = GetSpawnPoint(); // Find a spawn point
             Vector3 spawnPos = spawnPoint ? spawnPoint.position : Vector3.zero;
             Quaternion spawnRot = spawnPoint ? spawnPoint.rotation : Quaternion.identity;
 
             try
             {
+                // Spawn Player Prefab
                 NetworkObject networkPlayerObject = runner.Spawn(_playerPrefab, spawnPos, spawnRot, player);
-                if (networkPlayerObject != null) _spawnedCharacters.Add(player, networkPlayerObject);
-            }
-            catch (Exception) { /* Handle spawn errors */ }
+                if (networkPlayerObject != null)
+                {
+                    _spawnedCharacters.Add(player, networkPlayerObject);
+                    Debug.Log($"Successfully spawned character for player {player}");
 
-            if (FindFirstObjectByType<GameStateManager>() == null && _gameStateManagerPrefab != null && _gameStateManagerPrefab.IsValid)
+                    // Optional: Assign player name if PlayerController script has a method
+                    // PlayerController pc = networkPlayerObject.GetComponent<PlayerController>();
+                    // if (pc != null) pc.SetPlayerName(GetPlayerName()); // You need a way to get the joining player's name
+                }
+                else
+                {
+                    Debug.LogError($"Failed to spawn character for player {player}");
+                }
+
+                // Spawn Game State Manager if it doesn't exist (only once)
+                if (FindFirstObjectByType<GameStateManager>() == null && _gameStateManagerPrefab != null && _gameStateManagerPrefab.IsValid)
+                {
+                    Debug.Log("Spawning GameStateManager...");
+                    runner.Spawn(_gameStateManagerPrefab, Vector3.zero, Quaternion.identity);
+                }
+            }
+            catch (Exception ex)
             {
-                runner.Spawn(_gameStateManagerPrefab);
+                Debug.LogError($"Exception during player spawn: {ex.Message}\n{ex.StackTrace}");
             }
-
-            // --- MODIFICATION (STEP 3): Vehicle spawning logic removed from here ---
         }
-    }
-
-    private Transform GetSpawnPoint()
-    {
-        SpawnPoint[] spawnPoints = FindObjectsByType<SpawnPoint>(FindObjectsSortMode.None);
-        return spawnPoints.Length > 0 ? spawnPoints[UnityEngine.Random.Range(0, spawnPoints.Length)].transform : null;
     }
 
     public void OnPlayerLeft(NetworkRunner runner, PlayerRef player)
     {
+        Debug.Log($"Player {player} left.");
         if (_spawnedCharacters.TryGetValue(player, out NetworkObject networkObject))
         {
-            if (networkObject != null) runner.Despawn(networkObject);
+            if (networkObject != null)
+            {
+                Debug.Log($"Despawning character for player {player}");
+                runner.Despawn(networkObject);
+            }
             _spawnedCharacters.Remove(player);
+        }
+        else
+        {
+            Debug.LogWarning($"Player {player} left, but no spawned character found in dictionary.");
         }
     }
 
     public void OnSessionListUpdated(NetworkRunner runner, List<SessionInfo> sessionList)
     {
-        // --- 🟢 NEW LOG: Confirm Entry 🟢 ---
-        InGameDebug.Log($"--- OnSessionListUpdated --- <<< EXECUTING CALLBACK NOW >>>");
-        // --- 🟢 END NEW LOG 🟢 ---
-        InGameDebug.Log($"--- OnSessionListUpdated ---");
-        InGameDebug.Log($"Received {sessionList.Count} raw sessions from Photon.");
+        Debug.Log($"--- OnSessionListUpdated --- Received {sessionList.Count} raw sessions.");
 
-        // --- 🟢 NEW LOG: Dump Raw Session Data 🟢 ---
-        for (int i = 0; i < sessionList.Count; i++)
+        // Clear previous list and repopulate with valid, visible sessions
+        _availableSessions.Clear();
+        foreach (var session in sessionList)
         {
-            var session = sessionList[i];
-            InGameDebug.Log($"  Raw Session [{i}]: Name='{session.Name}', IsVisible={session.IsVisible}, IsOpen={session.IsOpen}, PlayerCount={session.PlayerCount}");
-            if (session.Properties != null)
+            // Basic filtering (can add more checks here)
+            if (session.IsVisible && !session.Name.StartsWith("BROWSER_") && !session.Name.StartsWith("TempDiscoverySession_"))
             {
-                foreach (var prop in session.Properties)
-                {
-                    InGameDebug.Log($"    > Prop Key='{prop.Key}', Value='{prop.Value}'");
-                }
+                _availableSessions.Add(session);
+
+                // Log details of valid sessions
+                string hash = session.Properties.TryGetValue("Hash", out var hashProp) ? hashProp?.PropertyValue?.ToString() ?? "NULL_PROP" : "NO_HASH";
+                string dispName = session.Properties.TryGetValue("DisplayName", out var nameProp) ? nameProp?.PropertyValue?.ToString() ?? "NULL_PROP" : session.Name;
+                Debug.Log($"  > Valid Session: Name='{session.Name}', Display='{dispName}', Hash='{hash}', Players={session.PlayerCount}/{session.MaxPlayers}, Open={session.IsOpen}");
             }
             else
             {
-                InGameDebug.Log($"    > Properties collection is null!");
+                // Debug.Log($"  > Ignoring Session: Name='{session.Name}', Visible={session.IsVisible}");
             }
         }
-        // --- 🟢 END NEW LOG 🟢 ---
+        Debug.Log($"Filtered list contains {_availableSessions.Count} sessions.");
 
-
-        List<SessionInfo> updatedList = new List<SessionInfo>(sessionList);
-
-        _availableSessions = updatedList.Where(s => !s.Name.StartsWith("BROWSER_") && !s.Name.StartsWith("TempDiscoverySession_")).ToList();
-
-        InGameDebug.Log($"Filtered list to {_availableSessions.Count} sessions.");
-        foreach (var session in _availableSessions)
-        {
-            string hash = "NO HASH";
-            if (session.Properties != null && session.Properties.TryGetValue("Hash", out var hashProp))
-            {
-                hash = hashProp.PropertyValue?.ToString() ?? "NULL PROP VALUE";
-            }
-            else if (session.Properties == null)
-            {
-                hash = "PROPS NULL";
-            }
-            InGameDebug.Log($"  > Filtered Session: Name='{session.Name}', Hash='{hash}'");
-        }
-
+        // Signal completion if waiting
         if (_sessionListTask != null && !_sessionListTask.Task.IsCompleted)
         {
-            InGameDebug.Log($"[OnSessionListUpdated] Setting session list task to complete (true).");
+            Debug.Log($"[OnSessionListUpdated] Setting session list task to complete (true).");
             _sessionListTask.TrySetResult(true);
         }
     }
 
     public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason)
     {
-        InGameDebug.Log($"--- OnShutdown ---");
-        InGameDebug.Log($"Reason: {shutdownReason}");
+        Debug.Log($"--- OnShutdown --- Reason: {shutdownReason}");
 
+        // Cleanup session code if host
         SessionCodeManager scm = FindFirstObjectByType<SessionCodeManager>();
-        if (!string.IsNullOrEmpty(SessionHash) && scm != null) scm.EndSession(SessionHash);
+        if (!string.IsNullOrEmpty(SessionHash) && scm != null) scm.EndSession(SessionHash); // Notify manager
+
+        // Clear local state
         _spawnedCharacters.Clear();
+        _isJoining = false; // Ensure joining flag is reset
 
-        if (SceneManager.GetActiveScene().name != "MainMenu")
+        Debug.Log($"Current Scene: {SceneManager.GetActiveScene().name}");
+        // Return to Main Menu if not already there
+        if (SceneManager.GetActiveScene().name != _mainMenuSceneName)
         {
-            SceneManager.LoadScene("MainMenu");
+            Debug.Log($"Loading {_mainMenuSceneName} scene after shutdown.");
+            SceneManager.LoadScene(_mainMenuSceneName);
+        }
+        else
+        {
+            Debug.Log("Already in MainMenu scene or scene name mismatch.");
+            // If shutdown happened *in* main menu (e.g., failed join), potentially reset UI
+            MainMenuUI mainMenu = FindFirstObjectByType<MainMenuUI>();
+            mainMenu?.ShowPanel(mainMenu.transform.Find("MainPanel")?.gameObject); // Try to show main panel
         }
 
-        if (_sceneManager != null)
+        // Ensure scene manager is enabled for future operations
+        if (_sceneManager != null) _sceneManager.enabled = true;
+
+        // Optionally destroy the runner component ONLY if the handler GO persists
+        // If the handler GO is destroyed on scene change, this is not needed.
+        if (runner != null && !_runner.IsUnityNull() && gameObject != null && gameObject.scene.isLoaded) // Check if GO still valid
         {
-            InGameDebug.Log($"[OnShutdown] Ensuring SceneManager component is re-enabled.");
-            _sceneManager.enabled = true;
+            //Destroy(runner); // Be careful with this if runner is on the same GO as handler
         }
     }
 
-    public void RecoverNetworkState()
+    public void OnSceneLoadDone(NetworkRunner runner)
     {
-        if (_runner != null && _runner.IsShutdown) { Destroy(_runner); _runner = gameObject.AddComponent<NetworkRunner>(); }
-        if (_runner == null) { _runner = gameObject.AddComponent<NetworkRunner>(); }
-    }
+        string currentSceneName = SceneManager.GetActiveScene().name;
+        Debug.Log($"[OnSceneLoadDone] Callback triggered. IsServer: {runner.IsServer}. Loaded Scene: '{currentSceneName}'.");
 
-
-    public static NetworkRunnerHandler GetInstance()
-    {
-        NetworkRunnerHandler instance = FindFirstObjectByType<NetworkRunnerHandler>();
-        if (instance == null)
+        // Server-specific actions after scene load (like spawning scene objects)
+        if (runner.IsServer)
         {
-            GameObject go = new GameObject("NetworkRunnerHandler");
-            instance = go.AddComponent<NetworkRunnerHandler>();
-            if (instance.GetComponent<NetworkRunner>() == null) instance.AddComponent<NetworkRunner>();
-            if (instance.GetComponent<NetworkSceneManagerDefault>() == null) instance.AddComponent<NetworkSceneManagerDefault>();
-            DontDestroyOnLoad(go);
+            // Spawn Vehicle in Game or Lobby scene if it doesn't exist
+            if (currentSceneName == _lobbySceneName || currentSceneName == _gameSceneName)
+            {
+                Debug.Log($"Server loaded scene '{currentSceneName}'. Checking for vehicle...");
+                if (FindFirstObjectByType<NetworkedPrometeoCar>() == null) // Check by specific vehicle script
+                {
+                    Debug.Log("No vehicle found. Spawning...");
+                    if (_vehiclePrefab != null && _vehiclePrefab.IsValid)
+                    {
+                        Transform spawnPoint = GetSpawnPoint(); // Use player spawn or dedicated vehicle spawn
+                        Vector3 vehicleSpawnPos = spawnPoint ? spawnPoint.position + spawnPoint.forward * 2f + Vector3.up * 0.5f : new Vector3(0, 0.5f, 5);
+                        Debug.Log($"Spawning vehicle prefab '{_vehiclePrefab}' at {vehicleSpawnPos}");
+                        runner.Spawn(_vehiclePrefab, vehicleSpawnPos, Quaternion.identity);
+                    }
+                    else { Debug.LogError("Vehicle Prefab is invalid or not assigned!"); }
+                }
+                else { Debug.Log("Vehicle already exists. Skipping spawn."); }
+
+                // Spawn Game State Manager if needed (redundant check, also in OnPlayerJoined)
+                if (FindFirstObjectByType<GameStateManager>() == null && _gameStateManagerPrefab != null && _gameStateManagerPrefab.IsValid)
+                {
+                    Debug.Log("Spawning GameStateManager in OnSceneLoadDone...");
+                    runner.Spawn(_gameStateManagerPrefab);
+                }
+            }
         }
-        return instance;
     }
 
+    public void OnConnectedToServer(NetworkRunner runner)
+    {
+        Debug.Log($"--- OnConnectedToServer --- Region: '{runner.SessionInfo?.Region ?? "N/A"}'");
+        // Called when client successfully connects (before session join confirmation)
+        UpdateLocalSessionInfoFromRunner(); // Update session info when connected
+    }
 
-    // --- Empty Callbacks (Required by Interface) ---
+    // --- Helper to find spawn points ---
+    private Transform GetSpawnPoint()
+    {
+        SpawnPoint[] spawnPoints = FindObjectsByType<SpawnPoint>(FindObjectsSortMode.None);
+        if (spawnPoints.Length > 0)
+        {
+            return spawnPoints[UnityEngine.Random.Range(0, spawnPoints.Length)].transform;
+        }
+        Debug.LogWarning("No SpawnPoint objects found in the scene! Defaulting to Vector3.zero.");
+        return null;
+    }
+
+    // --- Other INetworkRunnerCallbacks (can be left empty if not needed) ---
     public void OnInput(NetworkRunner runner, NetworkInput input) { }
     public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) { }
     public void OnConnectRequest(NetworkRunner runner, NetworkRunnerCallbackArgs.ConnectRequest request, byte[] token) { }
-    public void OnConnectFailed(NetworkRunner runner, NetAddress remoteAddress, NetConnectFailedReason reason) { }
+    public void OnConnectFailed(NetworkRunner runner, NetAddress remoteAddress, NetConnectFailedReason reason) { Debug.LogError($"Connect failed: {reason}"); _isJoining = false; }
     public void OnUserSimulationMessage(NetworkRunner runner, SimulationMessagePtr message) { }
     public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) { }
     public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken) { }
     public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, ArraySegment<byte> data) { }
-
-    public void OnSceneLoadStart(NetworkRunner runner) { }
+    public void OnReliableDataProgress(NetworkRunner runner, PlayerRef player, ReliableKey key, float progress) { }
+    public void OnSceneLoadStart(NetworkRunner runner) { Debug.Log("[OnSceneLoadStart] Scene load initiated by runner."); }
     public void OnObjectEnterAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
     public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
+    public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason) { Debug.Log($"Disconnected from server: {reason}"); _isJoining = false; }
 
-    public void OnReliableDataProgress(NetworkRunner runner, PlayerRef player, ReliableKey key, float progress) { }
-
-    public void OnConnectedToServer(NetworkRunner runner)
-    {
-        InGameDebug.Log($"--- OnConnectedToServer ---");
-        // We get the region from the SessionInfo AFTER connecting
-        if (runner.SessionInfo != null)
-        {
-            InGameDebug.Log($"Successfully connected to region: '{runner.SessionInfo.Region}'");
-        }
-        else
-        {
-            InGameDebug.Log($"Connected to server, but SessionInfo is unexpectedly null.");
-        }
-    }
-
-    public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason) { }
-
-    // --- MODIFICATION (STEP 3): Added logic to OnSceneLoadDone ---
-    public void OnSceneLoadDone(NetworkRunner runner)
-    {
-        string currentSceneName = SceneManager.GetActiveScene().name;
-        InGameDebug.Log($"[OnSceneLoadDone] Callback triggered. IsServer: {runner.IsServer}. Loaded Scene: '{currentSceneName}'.");
-
-        // Check if we are the Server/Host
-        if (runner.IsServer)
-        {
-            // --- MODIFICATION: Check if the loaded scene is EITHER the Lobby OR the Game scene ---
-            if (currentSceneName == _lobbySceneName || currentSceneName == _gameSceneName)
-            {
-                InGameDebug.Log($"[OnSceneLoadDone] Server loaded a scene configured for spawning: '{currentSceneName}'. Checking for existing vehicle...");
-
-                // Check if a vehicle *already exists*
-                if (FindFirstObjectByType<NetworkedPrometeoCar>() == null)
-                {
-                    InGameDebug.Log("[OnSceneLoadDone] No vehicle found. Proceeding to spawn...");
-
-                    // Check if the prefab slot is assigned in the Inspector
-                    if (_vehiclePrefab != null)
-                    {
-                        // Check if the prefab is valid (has a NetworkObject)
-                        if (_vehiclePrefab.IsValid)
-                        {
-                            Transform spawnPoint = GetSpawnPoint();
-                            Vector3 vehicleSpawnPos = spawnPoint ? spawnPoint.position + spawnPoint.forward * 5f + Vector3.up * 0.5f : new Vector3(0, 0.5f, 5);
-
-                            InGameDebug.Log($"[OnSceneLoadDone] SUCCESS: Spawning vehicle prefab '{_vehiclePrefab}' at {vehicleSpawnPos}");
-                            runner.Spawn(_vehiclePrefab, vehicleSpawnPos, Quaternion.identity);
-                        }
-                        else
-                        {
-                            InGameDebug.Log($"[OnSceneLoadDone] ERROR: Vehicle Prefab is NOT VALID. Does the prefab have a NetworkObject component on its root?");
-                        }
-                    }
-                    else
-                    {
-                        InGameDebug.Log($"[OnSceneLoadDone] ERROR: _vehiclePrefab slot is EMPTY (None). Please assign your vehicle prefab in the NetworkRunnerHandler Inspector.");
-                    }
-                }
-                else
-                {
-                    InGameDebug.Log("[OnSceneLoadDone] SKIPPING SPAWN: A 'NetworkedPrometeoCar' already exists in the scene.");
-                }
-            }
-            else
-            {
-                InGameDebug.Log($"[OnSceneLoadDone] Server loaded scene '{currentSceneName}', which does NOT match _lobbySceneName ('{_lobbySceneName}') or _gameSceneName ('{_gameSceneName}'). No vehicle spawn.");
-            }
-        }
-    }
 }

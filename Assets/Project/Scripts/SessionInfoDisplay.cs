@@ -3,8 +3,8 @@ using UnityEngine.UI;
 using TMPro;
 using Fusion;
 using System;
-using System.Linq;
-using System.Collections;
+using System.Linq; // Keep for player count if needed
+using System.Text; // Added for StringBuilder
 
 public class SessionInfoDisplay : MonoBehaviour
 {
@@ -22,84 +22,85 @@ public class SessionInfoDisplay : MonoBehaviour
     [SerializeField] private bool _showSessionHash = true;
     [SerializeField] private bool _showSessionTime = true;
     [SerializeField] private bool _showPlayerCount = true;
-    [SerializeField] private bool _showVisibilityStatus = true; // Useful info, not just debug
+    [SerializeField] private bool _showPublicStatus = true;   // Renamed from _showVisibilityStatus
+    [SerializeField] private bool _showPing = true;
+    [SerializeField] private bool _showRegion = true;
+    [SerializeField] private bool _showRunnerMode = true;
+    [SerializeField] private bool _showInternalSessionID = false; // <-- ADDED: Photon's internal session name/ID
+    [SerializeField] private bool _showIsHostStatus = true;     // <-- ADDED: Indicate if local player is host/server
+    [SerializeField] private bool _showLocalPlayerRef = false;    // <-- ADDED: Show local PlayerRef
 
-    private GameStateManager _gameStateManager;
+    private GameStateManager _gameStateManager; // Still useful for potentially more persistent data if needed
     private NetworkRunner _runner;
     private Canvas _canvas;
     private RectTransform _textRectTransform;
     private RectTransform _backgroundRect;
-    private Image _backgroundImage; // Added reference for background
+    private Image _backgroundImage;
+
+    private readonly StringBuilder _infoBuilder = new StringBuilder(); // Reuse StringBuilder
 
     private void Awake()
     {
-        // Find or create UI elements
         SetupUI();
     }
 
+    // --- SetupUI() method remains the same as the previous version ---
     private void SetupUI()
     {
         _runner = FindObjectOfType<NetworkRunner>(); // Find runner early
 
         if (_infoText == null)
         {
-            // Ensure a Canvas exists in the scene or create one
+            // --- Auto-create UI logic (kept from previous version) ---
             _canvas = FindObjectOfType<Canvas>();
             if (_canvas == null || _canvas.renderMode != RenderMode.ScreenSpaceOverlay)
             {
                 GameObject canvasObj = new GameObject("SessionInfoCanvas");
                 _canvas = canvasObj.AddComponent<Canvas>();
                 _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-                canvasObj.AddComponent<CanvasScaler>(); // Add scaler for responsiveness
+                canvasObj.AddComponent<CanvasScaler>();
                 canvasObj.AddComponent<GraphicRaycaster>();
-                // Optionally make it persistent if needed across scenes: DontDestroyOnLoad(canvasObj);
+                // Optionally: DontDestroyOnLoad(canvasObj);
             }
 
-
             GameObject displayRoot = new GameObject("SessionInfoDisplayRoot");
-            displayRoot.transform.SetParent(_canvas.transform, false); // Parent to canvas
+            displayRoot.transform.SetParent(_canvas.transform, false);
             RectTransform rootRect = displayRoot.AddComponent<RectTransform>();
-
-            // Configure root RectTransform for top-left positioning
             rootRect.anchorMin = new Vector2(0, 1);
             rootRect.anchorMax = new Vector2(0, 1);
             rootRect.pivot = new Vector2(0, 1);
             rootRect.anchoredPosition = _offset;
             rootRect.sizeDelta = new Vector2(350, 150); // Initial size, will adapt
 
-
             if (_showBackground)
             {
                 _backgroundImage = displayRoot.AddComponent<Image>();
                 _backgroundImage.color = _backgroundColor;
-                _backgroundRect = rootRect; // Background is the root object
+                _backgroundRect = rootRect;
             }
 
-            // Create Text object as child of the root/background
             GameObject textObj = new GameObject("SessionInfoText");
-            textObj.transform.SetParent(rootRect, false); // Parent to root/background
-
+            textObj.transform.SetParent(rootRect, false);
             _infoText = textObj.AddComponent<TextMeshProUGUI>();
             _infoText.fontSize = _fontSize;
             _infoText.color = _textColor;
             _infoText.alignment = TextAlignmentOptions.TopLeft;
             _infoText.enableWordWrapping = true;
-            _infoText.raycastTarget = false; // Prevent blocking UI behind it
-
+            _infoText.raycastTarget = false;
 
             _textRectTransform = _infoText.rectTransform;
-            _textRectTransform.anchorMin = Vector2.zero; // Stretch to fill parent
+            _textRectTransform.anchorMin = Vector2.zero;
             _textRectTransform.anchorMax = Vector2.one;
-            _textRectTransform.offsetMin = _backgroundPadding; // Apply padding
+            _textRectTransform.offsetMin = _backgroundPadding;
             _textRectTransform.offsetMax = -_backgroundPadding;
         }
         else
         {
-            // If _infoText is assigned, try to find its parent elements
+            // --- Find existing elements logic (kept from previous version) ---
             _textRectTransform = _infoText.rectTransform;
             if (_showBackground && _backgroundRect == null)
             {
-                _backgroundRect = _infoText.transform.parent as RectTransform; // Assume parent is background
+                _backgroundRect = _infoText.transform.parent as RectTransform;
                 if (_backgroundRect != null) _backgroundImage = _backgroundRect.GetComponent<Image>();
             }
             if (_canvas == null) _canvas = GetComponentInParent<Canvas>();
@@ -116,13 +117,12 @@ public class SessionInfoDisplay : MonoBehaviour
 
     private void Update()
     {
-        // Update less frequently to save performance
-        if (Time.frameCount % 30 == 0) // Update ~2 times per second
+        // Update less frequently
+        if (Time.frameCount % 30 == 0) // ~2 times per second
         {
-            // Ensure references are valid (especially after scene loads)
             if (_runner == null) _runner = FindObjectOfType<NetworkRunner>();
+            // GameStateManager might still be useful, keep the check
             if (_gameStateManager == null) _gameStateManager = FindObjectOfType<GameStateManager>();
-
             UpdateSessionInfo();
         }
     }
@@ -131,88 +131,125 @@ public class SessionInfoDisplay : MonoBehaviour
     {
         if (_infoText == null) return;
 
-        System.Text.StringBuilder infoBuilder = new System.Text.StringBuilder();
-        infoBuilder.AppendLine("<color=#yellow><b>SESSION INFO</b></color>"); // Example header
+        _infoBuilder.Clear();
+        _infoBuilder.AppendLine("<color=#yellow><b>SESSION INFO</b></color>");
 
         bool hasRunner = _runner != null && _runner.IsRunning;
-        bool hasGameState = _gameStateManager != null;
 
-        if (!hasRunner && !hasGameState)
+        if (!hasRunner)
         {
             _infoText.text = "Not Connected";
             AdjustBackgroundSize();
             return;
         }
 
+        // Get handler for potentially stored info (like original hash/name)
+        NetworkRunnerHandler handler = _runner.GetComponent<NetworkRunnerHandler>();
 
-        // Use GameStateManager for persistent info if available
-        if (hasGameState)
+        // --- Session Details ---
+        if (_showSessionName)
         {
-            if (_showSessionName && !string.IsNullOrEmpty(_gameStateManager.SessionDisplayName.ToString()))
-                infoBuilder.AppendLine($"Game: {_gameStateManager.SessionDisplayName}");
-            if (_showSessionHash && !string.IsNullOrEmpty(_gameStateManager.SessionHash.ToString()))
-                infoBuilder.AppendLine($"Code: {_gameStateManager.SessionHash}");
-            if (_showSessionTime && _gameStateManager.SessionStartTime > 0)
-            {
-                int elapsedSeconds = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds() - _gameStateManager.SessionStartTime;
-                infoBuilder.AppendLine($"Time: {FormatTimespan(elapsedSeconds)}");
-            }
+            string name = handler?.SessionDisplayName ?? _runner.SessionInfo?.Name ?? "N/A";
+            _infoBuilder.AppendLine($"Game: {name}");
         }
-        // Use Runner for dynamic info
-        else if (hasRunner) // Fallback if GameStateManager isn't ready/available
+        if (_showSessionHash)
         {
-            NetworkRunnerHandler handler = FindObjectOfType<NetworkRunnerHandler>(); // Temp find
-            if (handler != null)
+            string hash = handler?.SessionHash ?? "N/A";
+            if (hash == "N/A" && _runner.SessionInfo != null && _runner.SessionInfo.Properties.TryGetValue("Hash", out var hashProp))
             {
-                if (_showSessionName && !string.IsNullOrEmpty(handler.SessionDisplayName)) infoBuilder.AppendLine($"Game: {handler.SessionDisplayName}");
-                if (_showSessionHash && !string.IsNullOrEmpty(handler.SessionHash)) infoBuilder.AppendLine($"Code: {handler.SessionHash}");
+                hash = hashProp?.PropertyValue?.ToString() ?? "N/A";
             }
+            _infoBuilder.AppendLine($"Code: {hash}");
         }
-
-
-        if (hasRunner)
+        if (_showInternalSessionID && _runner.SessionInfo != null) // <-- ADDED
         {
-            if (_showPlayerCount)
+            _infoBuilder.AppendLine($"<color=#grey>ID: {_runner.SessionInfo.Name}</color>"); // Show Photon internal ID
+        }
+        if (_showSessionTime)
+        {
+            long startTime = handler?.SessionStartTime ?? 0;
+            if (startTime == 0 && _runner.SessionInfo != null && _runner.SessionInfo.Properties.TryGetValue("StartTime", out var timeProp) && timeProp.PropertyValue is int stVal)
             {
-                int playerCount = _runner.ActivePlayers.Count();
-                int maxPlayers = _runner.SessionInfo?.MaxPlayers ?? _runner.Config.Simulation.PlayerCount; // Use PlayerCount from config
-                infoBuilder.AppendLine($"Players: {playerCount} / {maxPlayers}");
+                startTime = stVal;
             }
-
-            if (_showVisibilityStatus && _runner.SessionInfo != null)
+            if (startTime > 0)
             {
-                string visibilityText = _runner.SessionInfo.IsVisible ? "<color=green>VISIBLE</color>" : "<color=red>HIDDEN</color>";
-                infoBuilder.AppendLine($"Listing: {visibilityText}");
+                int elapsedSeconds = (int)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() - startTime);
+                _infoBuilder.AppendLine($"Time: {FormatTimespan(elapsedSeconds)}");
+            }
+            else
+            {
+                _infoBuilder.AppendLine("Time: N/A");
             }
         }
 
+        // --- Connection/Status Details ---
+        if (_showPublicStatus && _runner.SessionInfo != null) // Renamed field, logic is the same
+        {
+            string statusText = _runner.SessionInfo.IsVisible ? "<color=green>Public</color>" : "<color=orange>Private</color>";
+            if (!_runner.SessionInfo.IsOpen) statusText += " <color=red>(Closed)</color>"; // Also show if closed
+            _infoBuilder.AppendLine($"Status: {statusText}");
+        }
+        if (_showRunnerMode)
+        {
+            _infoBuilder.AppendLine($"Mode: {_runner.Mode}");
+        }
+        if (_showIsHostStatus) // <-- ADDED
+        {
+            string hostStatus = _runner.IsServer ? "Yes" : "No";
+            _infoBuilder.AppendLine($"Is Host: {hostStatus}");
+        }
+        if (_showRegion && _runner.SessionInfo != null)
+        {
+            string region = _runner.SessionInfo.Region ?? "N/A";
+            _infoBuilder.AppendLine($"Region: {region.ToUpper()}");
+        }
+        if (_showPing)
+        {
+            double rttSeconds = _runner.GetPlayerRtt(_runner.LocalPlayer);
+            int pingMs = (int)(rttSeconds * 1000);
+            _infoBuilder.AppendLine($"Ping: {pingMs} ms");
+        }
 
-        _infoText.text = infoBuilder.ToString();
+        // --- Player Details ---
+        if (_showPlayerCount)
+        {
+            int playerCount = _runner.ActivePlayers.Count();
+            int maxPlayers = _runner.SessionInfo?.MaxPlayers ?? _runner.Config.Simulation.PlayerCount;
+            _infoBuilder.AppendLine($"Players: {playerCount} / {maxPlayers}");
+        }
+        if (_showLocalPlayerRef) // <-- ADDED
+        {
+            _infoBuilder.AppendLine($"<color=#grey>Local Ref: {_runner.LocalPlayer}</color>");
+        }
+
+
+        _infoText.text = _infoBuilder.ToString();
         AdjustBackgroundSize();
     }
 
+    // --- AdjustBackgroundSize() method remains the same ---
     private void AdjustBackgroundSize()
     {
         if (_backgroundRect != null && _infoText != null)
         {
-            // Force update preferred height
-            LayoutRebuilder.ForceRebuildLayoutImmediate(_textRectTransform);
+            float preferredWidth = _infoText.preferredWidth;
             float preferredHeight = _infoText.preferredHeight;
-
-            // Calculate required background size
+            float bgWidth = preferredWidth + _backgroundPadding.x * 2;
             float bgHeight = preferredHeight + _backgroundPadding.y * 2;
-            float bgWidth = _backgroundRect.sizeDelta.x; // Keep existing width or set dynamically
-
-            _backgroundRect.sizeDelta = new Vector2(bgWidth, Mathf.Max(50, bgHeight)); // Ensure minimum size
+            bgWidth = Mathf.Max(200, bgWidth);
+            bgHeight = Mathf.Max(50, bgHeight);
+            _backgroundRect.sizeDelta = new Vector2(bgWidth, bgHeight);
+            LayoutRebuilder.ForceRebuildLayoutImmediate(_textRectTransform);
         }
     }
 
 
+    // --- FormatTimespan() method remains the same ---
     private string FormatTimespan(int totalSeconds)
     {
         if (totalSeconds < 0) totalSeconds = 0;
         TimeSpan time = TimeSpan.FromSeconds(totalSeconds);
-        // Format as HH:MM:SS or MM:SS depending on duration
         return time.TotalHours >= 1 ? time.ToString(@"hh\:mm\:ss") : time.ToString(@"mm\:ss");
     }
 }
