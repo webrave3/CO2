@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System;
 
 // *** KEEP THIS STRUCT DEFINITION HERE ***
-// Added Vehicle/Interaction fields
 public struct NetworkInputData : INetworkInput
 {
     public float HorizontalInput;
@@ -16,7 +15,6 @@ public struct NetworkInputData : INetworkInput
     public float VehicleThrottle; // Vehicle throttle/brake input (-1 to 1)
     public NetworkBool Use;           // Interaction button press
 }
-
 
 public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
 {
@@ -39,18 +37,15 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
     private bool _useInput;
     // --- End ADDED ---
 
-    private NetworkRunner _runner;
+    // Removed private NetworkRunner _runner; - Not needed here anymore
+
     private float _lastLogTime = 0f;
 
-    private void Awake()
-    {
-        _runner = GetComponent<NetworkRunner>();
-        // Optional log: if (Application.isPlaying) { Debug.Log("PlayerInput initialized"); }
-    }
+    // Removed Awake - GetComponent<NetworkRunner>() not needed
 
+    // Start remains the same
     private void Start()
     {
-        // Original Start logic - no changes needed
         string currentScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
         if (!currentScene.Contains("Lobby") && !currentScene.Contains("MainMenu"))
         {
@@ -62,7 +57,7 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (!Application.isFocused) return;
 
-        // Player Movement Input (Original)
+        // Player Movement Input
         _moveInput.x = Input.GetAxisRaw("Horizontal");
         _moveInput.y = Input.GetAxisRaw("Vertical");
 
@@ -73,42 +68,37 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
 
         _jumpInput = Input.GetKey(KeyCode.Space);
 
-        // --- ADDED Vehicle & Interaction Input ---
+        // Vehicle & Interaction Input
         _vehicleSteerInput = Input.GetAxisRaw("Horizontal"); // Using same axes
         _vehicleThrottleInput = Input.GetAxisRaw("Vertical"); // Using same axes
         _useInput = Input.GetKeyDown(KeyCode.E); // Use GetKeyDown for single press
-        // --- End ADDED ---
     }
 
     public void OnInput(NetworkRunner runner, NetworkInput input)
     {
+        // Check moved here to ensure runner is valid for this callback instance
         if (runner == null || !runner.IsRunning || !runner.IsPlayer) return;
 
         var data = new NetworkInputData();
 
-        // Player Movement (Original)
+        // Populate data struct
         data.HorizontalInput = _moveInput.x;
         data.VerticalInput = _moveInput.y;
         data.MouseDelta = _lookInput;
         data.Jump = _jumpInput;
-
-        // --- ADDED Vehicle & Interaction ---
         data.VehicleSteer = _vehicleSteerInput;
         data.VehicleThrottle = _vehicleThrottleInput;
         data.Use = _useInput;
-        // --- End ADDED ---
 
         input.Set(data);
 
-        // --- ADDED: Reset single-press input ---
-        _useInput = false; // Reset Use input after sending
-        // --- End ADDED ---
 
+        // Reset single-press input
+        _useInput = false;
 
         // Debug log (Original)
         if (_debugInput && (Time.time - _lastLogTime >= _debugLogInterval))
         {
-            // Check if any significant input is happening
             if (_moveInput.magnitude > 0.1f || _lookInput.magnitude > 0.1f || data.Jump || Mathf.Abs(_vehicleSteerInput) > 0.1f || Mathf.Abs(_vehicleThrottleInput) > 0.1f || data.Use)
             {
                 Debug.Log($"Input: Pl(H={data.HorizontalInput:F2}, V={data.VerticalInput:F2}, J={data.Jump}) Veh(S={data.VehicleSteer:F2}, T={data.VehicleThrottle:F2}) Use={data.Use}");
@@ -117,14 +107,13 @@ public class PlayerInput : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
-    // --- Keep empty implementations or add specific logic if needed ---
-    // (Rest of INetworkRunnerCallbacks methods are empty as per original)
+    // --- Keep empty implementations ---
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player) { }
     public void OnPlayerLeft(NetworkRunner runner, PlayerRef player) { }
     public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) { }
     public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason) { }
-    public void OnConnectedToServer(NetworkRunner runner) { } // Corrected signature
-    public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason) { } // Corrected signature
+    public void OnConnectedToServer(NetworkRunner runner) { }
+    public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason) { }
     public void OnConnectRequest(NetworkRunner runner, NetworkRunnerCallbackArgs.ConnectRequest request, byte[] token) { }
     public void OnConnectFailed(NetworkRunner runner, NetAddress remoteAddress, NetConnectFailedReason reason) { }
     public void OnUserSimulationMessage(NetworkRunner runner, SimulationMessagePtr message) { }

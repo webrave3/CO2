@@ -192,6 +192,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
 
 
     // --- StartClientGameByHash (Password via Connection Token) ---
+    // --- StartClientGameByHash (Password via Connection Token) ---
     public async Task<bool> StartClientGameByHash(string roomCode, string password = null)
     {
         Debug.Log($"--- [DIRECT JOIN] By Hash --- Code: '{roomCode}', Pwd Provided: {!string.IsNullOrEmpty(password)}");
@@ -203,8 +204,33 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
 
         try
         {
-            await ResetNetworkRunner();
-            _runner.ProvideInput = true;
+            // Runner shutdown/recreation if needed (Added similar logic as matchmaking join for robustness)
+            if (_runner != null && (_runner.IsRunning || _runner.IsCloudReady))
+            {
+                Debug.Log($"[DIRECT JOIN] Shutting down existing runner (Mode: {_runner.Mode}).");
+                await _runner.Shutdown(); await Task.Delay(200);
+            }
+            if (_runner == null || _runner.IsShutdown)
+            {
+                _runner = GetComponent<NetworkRunner>() ?? gameObject.AddComponent<NetworkRunner>();
+                _runner.AddCallbacks(this);
+            }
+            // --- End Added Robustness ---
+
+
+            // --- ADDED SCENE MANAGER CHECK ---
+            if (_sceneManager == null)
+            {
+                Debug.LogError("[DIRECT JOIN] SceneManager missing!");
+                _isJoining = false;
+                return false;
+            }
+            _sceneManager.enabled = true; // Ensure Scene Manager is enabled BEFORE starting join
+            Debug.Log("[DIRECT JOIN] Ensured NetworkSceneManager is enabled.");
+            // --- END ADDED CHECK ---
+
+
+            _runner.ProvideInput = true; // Moved after runner recreation check
 
             var sessionPropsFilter = new Dictionary<string, SessionProperty> { { "Hash", roomCode } };
 
@@ -231,7 +257,7 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             {
                 Debug.Log($"[DIRECT JOIN] StartGame OK. Session: '{_runner.SessionInfo.Name}', Connected Region: '{_runner.SessionInfo?.Region}'");
                 UpdateLocalSessionInfoFromRunner();
-                if (_sceneManager != null) _sceneManager.enabled = true;
+                // SceneManager enabling moved before StartGame call
                 _isJoining = false;
                 return true;
             }
@@ -263,6 +289,9 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
             _isJoining = false;
             return false;
         }
+        // Add a final return false if execution somehow reaches here without returning
+        // Though technically unreachable due to try/catch returns, added for explicitness
+        // return false; // This line might show as unreachable code warning, which is fine.
     }
 
     // --- Join specific game using SessionInfo (Matchmaking) ---
