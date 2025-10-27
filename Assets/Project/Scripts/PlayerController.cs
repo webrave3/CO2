@@ -102,31 +102,24 @@ public class PlayerController : NetworkBehaviour
         }
 
         // Ensure components start in correct state based on IsInVehicle
-        if (_kcc != null) _kcc.enabled = !IsInVehicle; // Added null check for safety
-        else Debug.LogError("SimpleKCC component reference (_kcc) is null in Spawned!");
-
+        _kcc.enabled = !IsInVehicle;
         if (_playerModel != null) _playerModel.SetActive(!IsInVehicle);
         else Debug.LogWarning("Player Model reference is not set on PlayerController!");
     }
 
     public override void FixedUpdateNetwork()
     {
-        bool gotInput = false;
-        NetworkInputData data = default; // Initialize data
-
-        // Only run if NOT in vehicle and we have input authority
-        if (!IsInVehicle && HasInputAuthority && (gotInput = GetInput(out data))) // Added HasInputAuthority check here
+        // Only run if NOT in vehicle and we have input
+        if (!IsInVehicle && GetInput(out NetworkInputData data))
         {
-            if (_kcc == null) return; // Added null check for safety
-
-            // Apply look rotation
+            // Apply look rotation (Original logic)
             _kcc.AddLookRotation(-data.MouseDelta.y * _lookSensitivity, data.MouseDelta.x * _lookSensitivity);
 
-            // Calculate movement direction
+            // Calculate movement direction (Original logic)
             Vector3 moveDirection = _kcc.TransformRotation * new Vector3(data.HorizontalInput, 0.0f, data.VerticalInput);
             Vector3 moveVelocity = moveDirection.normalized * _moveSpeed;
 
-            // Handle jumping
+            // Handle jumping (Original logic)
             float jumpImpulse = 0f;
             if (_kcc.IsGrounded)
             {
@@ -140,54 +133,22 @@ public class PlayerController : NetworkBehaviour
                 _jumpConsumed = true;     // Mark as consumed
             }
 
-            // Apply movement
-            _kcc.Move(moveVelocity, jumpImpulse);
-
-            // --- CORRECTED: InGameDebug Calls ---
-            InGameDebug.Log($"Ctrl_Auth: {HasInputAuthority} | GotInput: {gotInput}"); // Combined Auth and GotInput
-            InGameDebug.Log($"Ctrl_Move: H={data.HorizontalInput:F2}, V={data.VerticalInput:F2}, J={data.Jump}"); // Combined Movement
-            InGameDebug.Log($"Ctrl_KCC: Vel={moveVelocity}, JImp={jumpImpulse:F2}, Grounded={_kcc.IsGrounded}"); // Combined KCC state
-            InGameDebug.Log($"Ctrl_Vehicle: IsIn={IsInVehicle}"); // Added check for Vehicle State
-            // --- End CORRECTED ---
+            // Apply movement (Original KCC Move call - takes velocity and impulse)
+            _kcc.Move(moveVelocity, jumpImpulse); // Pass velocity and impulse
         }
-        else if (!IsInVehicle) // Stop movement if no input (or no authority) and not in vehicle
+        else if (!IsInVehicle) // Stop movement if no input and not in vehicle
         {
-            if (_kcc != null && _kcc.enabled) // Only call Move if KCC is active
-            {
-                _kcc.Move(Vector3.zero, 0f);
-            }
-
-            // --- CORRECTED: InGameDebug Calls (No Input/No Auth/Not In Vehicle) ---
-            // Log only if HasInputAuthority is true but gotInput is false, or periodically if relevant
-            if (HasInputAuthority && !gotInput) // Log reason for no movement only if we should have input
-            {
-                InGameDebug.Log($"Ctrl_Auth: {HasInputAuthority} | GotInput: {gotInput} | IsInVehicle: {IsInVehicle}");
-                InGameDebug.Log($"Ctrl_KCC_STOP: Grounded={(_kcc != null ? _kcc.IsGrounded.ToString() : "N/A")}");
-            }
-            else if (!HasInputAuthority) // Log lack of authority if applicable
-            {
-                // Maybe log this less frequently if it becomes spammy
-                // InGameDebug.Log($"Ctrl_Auth: {HasInputAuthority}");
-            }
-            // --- End CORRECTED ---
-        }
-        else // Handle the case when IsInVehicle is true
-        {
-            // --- CORRECTED: InGameDebug Calls (In Vehicle) ---
-            // Log this state only periodically or on state change if needed, otherwise it's spammy
-            // InGameDebug.Log($"Ctrl_InVehicle: Auth={HasInputAuthority}, IsIn={IsInVehicle}");
-            // --- End CORRECTED ---
+            // Call Move with zero velocity and zero impulse to stop
+            _kcc.Move(Vector3.zero, 0f);
         }
     }
-
 
     private void LateUpdate()
     {
         // Only run camera logic if local player AND NOT in vehicle
         if (!HasInputAuthority || _camera == null || IsInVehicle) return;
-        if (_kcc == null) return; // Added null check
 
-        // Apply vertical look rotation locally
+        // Apply vertical look rotation locally (Original logic)
         Vector2 lookRotation = _kcc.GetLookRotation(true, false);
         float pitch = Mathf.Clamp(lookRotation.x, _cameraMinY, _cameraMaxY);
         _camera.transform.localRotation = Quaternion.Euler(pitch, 0f, 0f);
@@ -213,17 +174,17 @@ public class PlayerController : NetworkBehaviour
         }
         // --- End Cursor Lock ---
 
-        // Debug key F3
+        // Debug key F3 (Original logic with FindObjectOfType correction)
         if (Input.GetKeyDown(KeyCode.F3))
         {
             Debug.Log($"==== PLAYER DEBUG ====");
             Debug.Log($"Player ID: {Object.InputAuthority.PlayerId}");
             Debug.Log($"HasInputAuthority: {HasInputAuthority}");
             Debug.Log($"HasStateAuthority: {Object.HasStateAuthority}");
-            Debug.Log($"IsInVehicle: {IsInVehicle}");
-            Debug.Log($"VehicleNetworkId: {VehicleNetworkId}");
+            Debug.Log($"IsInVehicle: {IsInVehicle}"); // Added vehicle state debug
+            Debug.Log($"VehicleNetworkId: {VehicleNetworkId}"); // Added vehicle ID debug
 
-            GameStateManager gsm = FindFirstObjectByType<GameStateManager>();
+            GameStateManager gsm = FindFirstObjectByType<GameStateManager>(); // Corrected obsolete call
             if (gsm != null)
             {
                 Debug.Log($"Game State: {gsm.State}");
@@ -236,65 +197,90 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
+    // Called via RPC from BasicVehicleController
+    // Called via RPC from NetworkedPrometeoCar (previously BasicVehicleController)
     // Called via RPC from NetworkedPrometeoCar
     public void SetInVehicle(NetworkBool inVehicle, NetworkId vehicleId = default, Vector3 exitPos = default)
     {
+        // Store the networked state (using the correct property names)
         IsInVehicle = inVehicle;
-        VehicleNetworkId = vehicleId;
+        VehicleNetworkId = vehicleId; // Corrected: Use the actual Networked property name
 
+        // --- Find the correct vehicle component ---
         NetworkedPrometeoCar vehicleComponent = null;
+        // Corrected: Check VehicleNetworkId validity
         if (inVehicle && Runner != null && VehicleNetworkId.IsValid)
         {
+            // Corrected: Use VehicleNetworkId to find the object
             if (Runner.TryFindObject(VehicleNetworkId, out var vehicleObj))
             {
+                // Try to get the NetworkedPrometeoCar component
                 if (!vehicleObj.TryGetComponent(out vehicleComponent))
                 {
+                    // Corrected: Use VehicleNetworkId in the log message
                     Debug.LogError($"Vehicle object {VehicleNetworkId} found, but it is missing the NetworkedPrometeoCar component!");
                 }
             }
             else
             {
+                // Corrected: Use VehicleNetworkId in the log message
                 Debug.LogError($"SetInVehicle: Could not find vehicle NetworkObject with ID {VehicleNetworkId}.");
             }
         }
+        // --- End Finding Component ---
 
+        // Apply local changes for the player controlling this object
         if (HasInputAuthority)
         {
             if (_camera != null) _camera.enabled = !inVehicle;
-            if (_playerAudioListener != null) _playerAudioListener.enabled = !inVehicle;
 
+            // --- AUDIO LISTENER ---
+            if (_playerAudioListener != null)
+            {
+                _playerAudioListener.enabled = !inVehicle;
+            }
+            // --- End AUDIO LISTENER ---
+
+            // Enable/Disable KCC and handle teleportation
             if (_kcc != null)
             {
+                // When exiting, teleport the KCC *before* enabling it
                 if (!inVehicle)
                 {
+                    // Ensure exitPos is valid, otherwise use a default relative position
                     Vector3 targetPosition = (exitPos == default) ? transform.position + transform.forward : exitPos;
-                    _kcc.SetPosition(targetPosition); // Teleport before enabling
+                    _kcc.SetPosition(targetPosition);
                     Debug.Log($"PlayerController {Object.Id}: Teleporting KCC to exit position {targetPosition}");
                 }
-                _kcc.enabled = !inVehicle;
+                _kcc.enabled = !inVehicle; // Enable KCC when exiting, disable when entering
             }
             else { Debug.LogError("KCC reference is null in PlayerController!"); }
         }
 
+        // Toggle player model visibility for everyone (unchanged)
         if (_playerModel != null)
         {
             _playerModel.SetActive(!inVehicle);
         }
         else { Debug.LogWarning("Player Model reference is not set on PlayerController!"); }
 
+        // Update VehicleInteraction's current vehicle reference (passing the correct type)
         if (_vehicleInteraction != null)
         {
-            _vehicleInteraction.SetCurrentVehicle(vehicleComponent);
+            _vehicleInteraction.SetCurrentVehicle(vehicleComponent); // Pass the found NetworkedPrometeoCar (or null)
             Debug.Log($"PlayerController {Object.Id}: Updated VehicleInteraction with vehicle {(vehicleComponent == null ? "null" : vehicleComponent.Id.ToString())}");
         }
         else { Debug.LogError("VehicleInteraction reference is null in PlayerController!"); }
 
+        // Corrected: Use vehicleId parameter name in the log message
         Debug.Log($"PlayerController {Object.Id} IsInVehicle set to: {inVehicle} for Vehicle: {vehicleId}");
     }
 
+
     public override void Despawned(NetworkRunner runner, bool hasState)
     {
-        if (HasInputAuthority)
+        // Debug.Log($"Player despawned - InputAuthority: {Object.InputAuthority}");
+        if (HasInputAuthority) // Original cleanup
         {
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;

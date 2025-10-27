@@ -2,12 +2,10 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
-using System; // Keep for StringComparison
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Linq;
-using Fusion;
-// *** REMOVED Photon.Realtime ***
+using Fusion; // Required for SessionProperty
 
 public class MainMenuUI : MonoBehaviour
 {
@@ -22,9 +20,8 @@ public class MainMenuUI : MonoBehaviour
     [Header("Host Game Settings")]
     [SerializeField] private TMP_InputField _hostSessionNameInput;
     [SerializeField] private Toggle _isPublicToggle;
-    [SerializeField] private TMP_InputField _hostPasswordInput; // Keep this
-    [SerializeField] private TMP_Dropdown _hostLanguageDropdown;
-    [SerializeField] private TMP_Dropdown _hostRegionDropdown;
+    [SerializeField] private TMP_Dropdown _hostLanguageDropdown; // Make sure this is assigned in Inspector
+    [SerializeField] private TMP_Dropdown _hostRegionDropdown; // Use this for region selection (MATCHES NetworkRunnerHandler GetPhotonRegionCode!)
 
     [Header("Join Game UI Reference")]
     [SerializeField] private JoinGameUI _joinGameUI;
@@ -39,76 +36,74 @@ public class MainMenuUI : MonoBehaviour
     [SerializeField] private GameObject _settingsPanel;
     [SerializeField] private GameObject _loadingPanel;
 
-    private NetworkRunnerHandler _networkRunnerHandler;
-    private List<string> _languageOptions = new List<string> { "Any", "English", "Spanish", "French", "German", "Chinese", "Russian" };
+    // Removed Region Dictionary - Logic moved to NetworkRunnerHandler
 
+    private NetworkRunnerHandler _networkRunnerHandler;
 
     void Start()
     {
         Debug.Log("MainMenuUI Start: Starting...");
-        _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>();
+
+        _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>(); // Prefer direct find in scene
+
         if (_networkRunnerHandler == null)
         {
-            Debug.LogError("NetworkRunnerHandler NOT FOUND!");
+            Debug.LogError("MainMenuUI Start: NetworkRunnerHandler NOT FOUND!");
             ShowStatusMessage("Network Error: Handler not found.", Color.red, true);
             if (_hostButton != null) _hostButton.interactable = false;
             if (_joinButton != null) _joinButton.interactable = false;
-            return;
-        }
-
-        // Initialize Dropdowns using static helpers from NetworkRunnerHandler
-        List<string> regionNames = NetworkRunnerHandler.GetRegionNames();
-        // Ensure "Any" is first, replacing "Best" if necessary for UI clarity
-        if (!regionNames.Contains("Any", StringComparer.OrdinalIgnoreCase))
-        {
-            regionNames.RemoveAll(r => r.Equals("Best", StringComparison.OrdinalIgnoreCase));
-            regionNames.Insert(0, "Any");
         }
         else
         {
-            // If "Any" exists, make sure "Best" isn't also shown if it means the same thing
-            regionNames.RemoveAll(r => r.Equals("Best", StringComparison.OrdinalIgnoreCase));
-            if (!regionNames[0].Equals("Any", StringComparison.OrdinalIgnoreCase))
-            { // Ensure Any is still first
-                regionNames.RemoveAll(r => r.Equals("Any", StringComparison.OrdinalIgnoreCase));
-                regionNames.Insert(0, "Any");
-            }
+            Debug.Log("MainMenuUI Start: NetworkRunnerHandler found successfully.");
         }
 
-        InitializeDropdown(_hostRegionDropdown, regionNames);
-        InitializeDropdown(_hostLanguageDropdown, _languageOptions);
+        // --- Initialize Host Dropdowns ---
+        InitializeDropdown(_hostRegionDropdown, new List<string> { "NA East", "EU", "Asia" }); // Match NetworkRunnerHandler.GetPhotonRegionCode cases
+        InitializeDropdown(_hostLanguageDropdown, new List<string> { "English", "Estonian" }); // Example languages
 
-        if (_hostSessionNameInput != null && string.IsNullOrEmpty(_hostSessionNameInput.text)) _hostSessionNameInput.text = _defaultSessionName;
-        if (_playerNameInput != null) _playerNameInput.text = PlayerPrefs.GetString("PlayerName", "Player" + UnityEngine.Random.Range(1000, 9999));
+        // Set default session name in the HOST panel input
+        if (_hostSessionNameInput != null && string.IsNullOrEmpty(_hostSessionNameInput.text))
+        {
+            _hostSessionNameInput.text = _defaultSessionName;
+        }
 
+        // Player Name Handling
+        if (_playerNameInput != null)
+        {
+            _playerNameInput.text = PlayerPrefs.GetString("PlayerName", "Player" + UnityEngine.Random.Range(1000, 9999));
+        }
+
+        // Setup Main Panel Button Callbacks
         SetupButton(_hostButton, () => ShowPanel(_hostPanel));
-        SetupButton(_joinButton, () => { ShowPanel(_joinGamePanel); _joinGameUI?.ShowJoinPanel(); });
+        SetupButton(_joinButton, () => {
+            ShowPanel(_joinGamePanel);
+            if (_joinGameUI != null)
+            {
+                _joinGameUI.ShowJoinPanel(); // Call the specific show method on JoinGameUI
+            }
+            else { Debug.LogError("MainMenuUI: _joinGameUI reference is NULL!"); }
+        });
         SetupButton(_settingsButton, () => ShowPanel(_settingsPanel));
         SetupButton(_quitButton, OnQuitButtonClicked);
 
+        // Host Panel - Find and Setup Start Button
         if (_hostPanel != null)
         {
-            Button hostStartButton = _hostPanel.GetComponentsInChildren<Button>(true).FirstOrDefault(b => b.name.Contains("StartHostButton"));
-            if (hostStartButton != null) SetupButton(hostStartButton, OnHostGameStartClicked); else Debug.LogError("Host Start Button not found!");
-            // Password visibility toggle setup
-            if (_isPublicToggle != null && _hostPasswordInput != null)
-            {
-                _isPublicToggle.onValueChanged.AddListener(UpdatePasswordVisibility);
-                UpdatePasswordVisibility(_isPublicToggle.isOn); // Initial state
-            }
-        }
-        ShowPanel(_mainPanel);
-        SetupBackButtons();
-        if (_statusText != null) _statusText.gameObject.SetActive(false);
-    }
+            Button hostStartButton = _hostPanel.transform.Find("StartHostButton")?.GetComponent<Button>();
+            if (hostStartButton == null) hostStartButton = _hostPanel.GetComponentInChildren<Button>(true); // Fallback search
 
-    private void UpdatePasswordVisibility(bool isPublic)
-    {
-        if (_hostPasswordInput != null)
-        {
-            _hostPasswordInput.gameObject.SetActive(!isPublic);
-            if (isPublic) _hostPasswordInput.text = ""; // Clear password if public
+            if (hostStartButton != null)
+            {
+                SetupButton(hostStartButton, OnHostGameStartClicked);
+                Debug.Log("Host Start Button listener attached.");
+            }
+            else { Debug.LogError("Could not find StartHostButton in the Host Panel!"); }
         }
+
+        ShowPanel(_mainPanel); // Start on main panel
+        SetupBackButtons();
+        if (_statusText != null) _statusText.gameObject.SetActive(false); // Hide status initially
     }
 
     private void InitializeDropdown(TMP_Dropdown dropdown, List<string> options)
@@ -119,14 +114,19 @@ public class MainMenuUI : MonoBehaviour
             if (options != null && options.Count > 0)
             {
                 dropdown.AddOptions(options);
-                dropdown.value = 0; // Default to first option ("Any")
+                dropdown.value = 0; // Default to first option
             }
         }
     }
 
+
     private void SetupButton(Button button, UnityEngine.Events.UnityAction action)
     {
-        if (button != null) { button.onClick.RemoveAllListeners(); button.onClick.AddListener(action); }
+        if (button != null)
+        {
+            button.onClick.RemoveAllListeners();
+            button.onClick.AddListener(action);
+        }
     }
 
     public void ShowMainPanel() => ShowPanel(_mainPanel);
@@ -135,87 +135,82 @@ public class MainMenuUI : MonoBehaviour
     public void ShowPanel(GameObject panelToShow)
     {
         if (panelToShow == null) return;
+
+        // Disable all known panels
         if (_mainPanel != null) _mainPanel.SetActive(false);
         if (_hostPanel != null) _hostPanel.SetActive(false);
         if (_joinGamePanel != null) _joinGamePanel.SetActive(false);
         if (_settingsPanel != null) _settingsPanel.SetActive(false);
         if (_loadingPanel != null) _loadingPanel.SetActive(false);
+
+        // Enable the requested one
         panelToShow.SetActive(true);
     }
 
     private async void OnHostGameStartClicked()
     {
-        if (_networkRunnerHandler == null) { ShowStatusMessage("Network Error.", Color.red, true); return; }
+        if (_networkRunnerHandler == null)
+        {
+            ShowStatusMessage("Network Error. Cannot host.", Color.red, true);
+            return;
+        }
 
         SavePlayerName();
         ShowLoadingUI("Starting game...");
 
-        string sessionName = _hostSessionNameInput?.text;
-        if (string.IsNullOrWhiteSpace(sessionName)) sessionName = _defaultSessionName;
+        string sessionName = (_hostSessionNameInput != null && !string.IsNullOrEmpty(_hostSessionNameInput.text))
+            ? _hostSessionNameInput.text : _defaultSessionName;
 
-        bool isVisible = _isPublicToggle?.isOn ?? true;
+        bool isVisible = _isPublicToggle != null ? _isPublicToggle.isOn : true;
 
-        // Get Region Selection ("Any" maps to "Best" for the property)
-        string selectedRegionText = "Best";
+        // --- Get Region and Language from Dropdowns ---
+        string selectedRegionText = "best"; // Default if dropdown missing
         if (_hostRegionDropdown != null && _hostRegionDropdown.options.Count > 0)
         {
             selectedRegionText = _hostRegionDropdown.options[_hostRegionDropdown.value].text;
-            if (selectedRegionText.Equals("Any", StringComparison.OrdinalIgnoreCase)) selectedRegionText = "Best";
         }
 
-        // Get Language (null if "Any")
-        string selectedLanguage = null;
-        if (_hostLanguageDropdown != null && _hostLanguageDropdown.value > 0) // Index 0 is "Any"
+        string selectedLanguage = "English"; // Default if dropdown missing
+        if (_hostLanguageDropdown != null && _hostLanguageDropdown.options.Count > 0)
         {
             selectedLanguage = _hostLanguageDropdown.options[_hostLanguageDropdown.value].text;
         }
 
-        // Get Password (only if private)
-        string password = null;
-        if (!isVisible && _hostPasswordInput != null && !string.IsNullOrEmpty(_hostPasswordInput.text))
-        {
-            password = _hostPasswordInput.text;
-        }
-
-        // Prepare Custom Session Properties Dictionary
+        // --- Prepare Custom Session Properties ---
         var customSessionProperties = new Dictionary<string, SessionProperty>();
 
-        // Add Language property ONLY if a specific language was selected
-        if (!string.IsNullOrEmpty(selectedLanguage))
-        {
-            customSessionProperties[NetworkRunnerHandler.SESSION_LANGUAGE_KEY] = selectedLanguage;
-            Debug.Log($"[HOST] Adding Language Property: {selectedLanguage}");
-        }
+        // Add language using the defined key (Make sure SESSION_LANGUAGE_KEY is defined in NetworkRunnerHandler)
+        customSessionProperties[NetworkRunnerHandler.SESSION_LANGUAGE_KEY] = selectedLanguage;
+        Debug.Log($"[HOST] Adding property: {NetworkRunnerHandler.SESSION_LANGUAGE_KEY} = {selectedLanguage}");
 
-        // Add Region property (using the user-friendly name or "Best")
-        customSessionProperties[NetworkRunnerHandler.SESSION_REGION_KEY] = selectedRegionText;
-        Debug.Log($"[HOST] Adding Region Property: {selectedRegionText}");
+        // Add region using the defined key (Make sure SESSION_REGION_KEY is defined in NetworkRunnerHandler)
+        customSessionProperties[NetworkRunnerHandler.SESSION_REGION_KEY] = selectedRegionText; // Storing region text, Photon uses AppSettings for actual connection region
+        Debug.Log($"[HOST] Adding property: {NetworkRunnerHandler.SESSION_REGION_KEY} = {selectedRegionText}");
 
+        // Add any *other* custom properties here if needed
+        // customSessionProperties["difficulty"] = "Normal"; // Example
 
-        // Add password to custom properties IF private and password exists
-        if (!isVisible && !string.IsNullOrEmpty(password))
-        {
-            customSessionProperties[NetworkRunnerHandler.SESSION_PASSWORD_KEY] = password;
-            Debug.Log($"[HOST] Adding Password Property.");
-        }
-
-        // Call StartHostGame - Handler will read password from customProps now
+        // --- CORRECTED Call to StartHostGame ---
+        // Pass only the parameters defined in the method signature
         await _networkRunnerHandler.StartHostGame(
             sessionNameBase: sessionName,
             isVisible: isVisible,
             customProps: customSessionProperties // Pass the dictionary
         );
 
-        // Check result (Handler changes scene on success)
-        await Task.Delay(100); // Small delay to allow runner state update
+        // Check if starting failed (Runner might be null or not running after await)
+        // Check this condition *after* the await completes
         if (_networkRunnerHandler == null || _networkRunnerHandler.Runner == null || !_networkRunnerHandler.Runner.IsRunning)
         {
-            // Check if component is still valid after await
-            if (this != null && gameObject != null && gameObject.activeInHierarchy)
+            // Only update UI if this component is still active
+            if (this != null && gameObject.activeInHierarchy)
             {
-                ShowStatusMessage("Failed to start host.", Color.red); ShowPanel(_mainPanel);
+                ShowStatusMessage("Failed to start host.", Color.red, false); // Show error briefly
+                // No Task.Delay needed here, HideStatusAfterDelay handles it
+                ShowPanel(_mainPanel); // Return to main panel
             }
         }
+        // Success case: NetworkRunnerHandler handles scene change
     }
 
 
@@ -225,15 +220,62 @@ public class MainMenuUI : MonoBehaviour
     {
         if (_playerNameInput != null && !string.IsNullOrEmpty(_playerNameInput.text))
         {
-            PlayerPrefs.SetString("PlayerName", _playerNameInput.text); PlayerPrefs.Save();
+            PlayerPrefs.SetString("PlayerName", _playerNameInput.text);
+            PlayerPrefs.Save();
         }
     }
 
-    private void ShowLoadingUI(string msg) { ShowPanel(_loadingPanel); ShowStatusMessage(msg, Color.white, true); }
-    private void ShowStatusMessage(string msg, Color color, bool persistent) { ShowStatusMessage(msg, color, persistent ? -1f : 3f); }
-    private void ShowStatusMessage(string msg, Color color, float duration = 3f) { if (_statusText != null) { _statusText.text = msg; _statusText.color = color; _statusText.gameObject.SetActive(true); StopAllCoroutines(); if (duration > 0) { StartCoroutine(HideStatusAfterDelay(duration)); } } }
-    private void SetupBackButtons() { SetupBackButton(_hostPanel); SetupBackButton(_settingsPanel); }
-    private void SetupBackButton(GameObject panel) { if (panel == null) return; Button backButton = panel.GetComponentsInChildren<Button>(true).FirstOrDefault(b => b.name.Contains("Back")); if (backButton != null) SetupButton(backButton, () => ShowPanel(_mainPanel)); }
-    private System.Collections.IEnumerator HideStatusAfterDelay(float delay) { yield return new WaitForSeconds(delay); if (_statusText != null) _statusText.gameObject.SetActive(false); }
-    void OnDestroy() { if (_isPublicToggle != null) _isPublicToggle.onValueChanged.RemoveListener(UpdatePasswordVisibility); }
+    private void ShowLoadingUI(string statusMessage)
+    {
+        ShowPanel(_loadingPanel);
+        ShowStatusMessage(statusMessage, Color.white, true); // Keep loading message visible
+    }
+
+    // Overload for persistent message
+    private void ShowStatusMessage(string message, Color color, bool persistent)
+    {
+        ShowStatusMessage(message, color, persistent ? -1f : 3f); // Use negative duration for persistent
+    }
+
+    private void ShowStatusMessage(string message, Color color, float duration = 3f)
+    {
+        if (_statusText != null)
+        {
+            _statusText.text = message;
+            _statusText.color = color;
+            _statusText.gameObject.SetActive(true);
+            StopAllCoroutines(); // Stop previous hide coroutine
+            if (duration > 0) // Only start hide coroutine if duration is positive
+            {
+                StartCoroutine(HideStatusAfterDelay(duration));
+            }
+        }
+    }
+
+
+    private void SetupBackButtons()
+    {
+        SetupBackButton(_hostPanel);
+        SetupBackButton(_settingsPanel);
+        // Join panel back button is handled by JoinGameUI
+    }
+
+    private void SetupBackButton(GameObject panel)
+    {
+        if (panel == null) return;
+        Button backButton = panel.transform.Find("BackButton")?.GetComponent<Button>() ?? panel.transform.Find("Back")?.GetComponent<Button>();
+        if (backButton != null)
+        {
+            SetupButton(backButton, () => ShowPanel(_mainPanel));
+        }
+    }
+
+    private System.Collections.IEnumerator HideStatusAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        if (_statusText != null)
+        {
+            _statusText.gameObject.SetActive(false);
+        }
+    }
 }
