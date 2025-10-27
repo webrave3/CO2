@@ -1,9 +1,9 @@
 ﻿using UnityEngine;
-using UnityEngine.UI;
+using UnityEngine.UI; // Keep for Image
 using TMPro;
 using Fusion;
 using System;
-using System.Linq; // Keep for player count if needed
+using System.Linq; // Keep for player count
 using System.Text; // Added for StringBuilder
 
 public class SessionInfoDisplay : MonoBehaviour
@@ -26,11 +26,11 @@ public class SessionInfoDisplay : MonoBehaviour
     [SerializeField] private bool _showPing = true;
     [SerializeField] private bool _showRegion = true;
     [SerializeField] private bool _showRunnerMode = true;
-    [SerializeField] private bool _showInternalSessionID = false; // <-- ADDED: Photon's internal session name/ID
-    [SerializeField] private bool _showIsHostStatus = true;     // <-- ADDED: Indicate if local player is host/server
-    [SerializeField] private bool _showLocalPlayerRef = false;    // <-- ADDED: Show local PlayerRef
+    [SerializeField] private bool _showInternalSessionID = false;
+    [SerializeField] private bool _showIsHostStatus = true;
+    [SerializeField] private bool _showLocalPlayerRef = false;
 
-    private GameStateManager _gameStateManager; // Still useful for potentially more persistent data if needed
+    // Removed GameStateManager reference as it wasn't used
     private NetworkRunner _runner;
     private Canvas _canvas;
     private RectTransform _textRectTransform;
@@ -44,63 +44,70 @@ public class SessionInfoDisplay : MonoBehaviour
         SetupUI();
     }
 
-    // --- SetupUI() method remains the same as the previous version ---
     private void SetupUI()
     {
-        _runner = FindObjectOfType<NetworkRunner>(); // Find runner early
+        // Find runner early, might exist already if this object is instantiated later
+        if (_runner == null) _runner = FindObjectOfType<NetworkRunner>();
 
         if (_infoText == null)
         {
-            // --- Auto-create UI logic (kept from previous version) ---
+            // --- Auto-create UI logic ---
             _canvas = FindObjectOfType<Canvas>();
             if (_canvas == null || _canvas.renderMode != RenderMode.ScreenSpaceOverlay)
             {
+                Debug.LogWarning("SessionInfoDisplay: Creating fallback Canvas.");
                 GameObject canvasObj = new GameObject("SessionInfoCanvas");
                 _canvas = canvasObj.AddComponent<Canvas>();
                 _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
                 canvasObj.AddComponent<CanvasScaler>();
                 canvasObj.AddComponent<GraphicRaycaster>();
-                // Optionally: DontDestroyOnLoad(canvasObj);
+                // Consider DontDestroyOnLoad(canvasObj); if needed across scenes without Bootstrap
             }
+
 
             GameObject displayRoot = new GameObject("SessionInfoDisplayRoot");
             displayRoot.transform.SetParent(_canvas.transform, false);
             RectTransform rootRect = displayRoot.AddComponent<RectTransform>();
+            // Anchor top-left
             rootRect.anchorMin = new Vector2(0, 1);
             rootRect.anchorMax = new Vector2(0, 1);
             rootRect.pivot = new Vector2(0, 1);
-            rootRect.anchoredPosition = _offset;
+            rootRect.anchoredPosition = _offset; // Apply offset from top-left
             rootRect.sizeDelta = new Vector2(350, 150); // Initial size, will adapt
 
             if (_showBackground)
             {
                 _backgroundImage = displayRoot.AddComponent<Image>();
                 _backgroundImage.color = _backgroundColor;
-                _backgroundRect = rootRect;
+                _backgroundRect = rootRect; // Background uses the root rect transform
+                                            // Ensure Image is not raycast target unless needed
+                _backgroundImage.raycastTarget = false;
             }
 
             GameObject textObj = new GameObject("SessionInfoText");
-            textObj.transform.SetParent(rootRect, false);
+            textObj.transform.SetParent(rootRect, false); // Child of the background/root
             _infoText = textObj.AddComponent<TextMeshProUGUI>();
             _infoText.fontSize = _fontSize;
             _infoText.color = _textColor;
             _infoText.alignment = TextAlignmentOptions.TopLeft;
             _infoText.enableWordWrapping = true;
-            _infoText.raycastTarget = false;
+            _infoText.raycastTarget = false; // Usually not needed for display text
 
             _textRectTransform = _infoText.rectTransform;
+            // Stretch text within the background rect, applying padding
             _textRectTransform.anchorMin = Vector2.zero;
             _textRectTransform.anchorMax = Vector2.one;
-            _textRectTransform.offsetMin = _backgroundPadding;
-            _textRectTransform.offsetMax = -_backgroundPadding;
+            _textRectTransform.offsetMin = _backgroundPadding;        // Bottom-left padding
+            _textRectTransform.offsetMax = -_backgroundPadding;       // Top-right padding (negative)
+
         }
         else
         {
-            // --- Find existing elements logic (kept from previous version) ---
+            // --- Find existing elements if _infoText was assigned ---
             _textRectTransform = _infoText.rectTransform;
             if (_showBackground && _backgroundRect == null)
             {
-                _backgroundRect = _infoText.transform.parent as RectTransform;
+                _backgroundRect = _infoText.transform.parent as RectTransform; // Assume parent holds background
                 if (_backgroundRect != null) _backgroundImage = _backgroundRect.GetComponent<Image>();
             }
             if (_canvas == null) _canvas = GetComponentInParent<Canvas>();
@@ -110,19 +117,21 @@ public class SessionInfoDisplay : MonoBehaviour
 
     private void Start()
     {
-        // Get GameStateManager reference (might be null initially)
-        _gameStateManager = FindObjectOfType<GameStateManager>();
+        // Ensure runner is found if not already
+        if (_runner == null) _runner = FindObjectOfType<NetworkRunner>();
         UpdateSessionInfo(); // Initial update
     }
 
     private void Update()
     {
-        // Update less frequently
-        if (Time.frameCount % 30 == 0) // ~2 times per second
+        // Update less frequently for performance
+        if (Time.frameCount % 30 == 0) // Roughly 2 times per second at 60fps
         {
-            if (_runner == null) _runner = FindObjectOfType<NetworkRunner>();
-            // GameStateManager might still be useful, keep the check
-            if (_gameStateManager == null) _gameStateManager = FindObjectOfType<GameStateManager>();
+            // Runner might disconnect or scene might change, so keep checking/finding
+            if (_runner == null || !_runner.IsRunning)
+            {
+                _runner = FindObjectOfType<NetworkRunner>();
+            }
             UpdateSessionInfo();
         }
     }
@@ -134,41 +143,53 @@ public class SessionInfoDisplay : MonoBehaviour
         _infoBuilder.Clear();
         _infoBuilder.AppendLine("<color=#yellow><b>SESSION INFO</b></color>");
 
-        bool hasRunner = _runner != null && _runner.IsRunning;
+        // Check if runner exists and is actively running a session
+        bool hasRunner = _runner != null && _runner.IsRunning && _runner.SessionInfo != null;
 
         if (!hasRunner)
         {
             _infoText.text = "Not Connected";
-            AdjustBackgroundSize();
+            AdjustBackgroundSize(); // Adjust size even when not connected
             return;
         }
 
-        // Get handler for potentially stored info (like original hash/name)
-        NetworkRunnerHandler handler = _runner.GetComponent<NetworkRunnerHandler>();
+        // --- Runner is valid, proceed ---
+        NetworkRunnerHandler handler = _runner.GetComponent<NetworkRunnerHandler>(); // Can be null
 
         // --- Session Details ---
         if (_showSessionName)
         {
-            string name = handler?.SessionDisplayName ?? _runner.SessionInfo?.Name ?? "N/A";
+            string name = handler?.SessionDisplayName;
+            if (string.IsNullOrEmpty(name))
+            {
+                if (!_runner.SessionInfo.Properties.TryGetValue("DisplayName", out var nameProp) || string.IsNullOrEmpty(name = nameProp?.PropertyValue as string))
+                {
+                    name = _runner.SessionInfo.Name ?? "N/A";
+                }
+            }
             _infoBuilder.AppendLine($"Game: {name}");
         }
         if (_showSessionHash)
         {
-            string hash = handler?.SessionHash ?? "N/A";
-            if (hash == "N/A" && _runner.SessionInfo != null && _runner.SessionInfo.Properties.TryGetValue("Hash", out var hashProp))
+            string hash = handler?.SessionHash;
+            if (string.IsNullOrEmpty(hash) || hash == "N/A")
             {
-                hash = hashProp?.PropertyValue?.ToString() ?? "N/A";
+                if (_runner.SessionInfo.Properties.TryGetValue("Hash", out var hashProp))
+                {
+                    hash = hashProp?.PropertyValue?.ToString() ?? "N/A";
+                }
+                else { hash = "N/A"; }
             }
             _infoBuilder.AppendLine($"Code: {hash}");
         }
-        if (_showInternalSessionID && _runner.SessionInfo != null) // <-- ADDED
+        if (_showInternalSessionID)
         {
-            _infoBuilder.AppendLine($"<color=#grey>ID: {_runner.SessionInfo.Name}</color>"); // Show Photon internal ID
+            _infoBuilder.AppendLine($"<color=#grey>ID: {_runner.SessionInfo.Name}</color>");
         }
         if (_showSessionTime)
         {
             long startTime = handler?.SessionStartTime ?? 0;
-            if (startTime == 0 && _runner.SessionInfo != null && _runner.SessionInfo.Properties.TryGetValue("StartTime", out var timeProp) && timeProp.PropertyValue is int stVal)
+            if (startTime == 0 && _runner.SessionInfo.Properties.TryGetValue("StartTime", out var timeProp) && timeProp.PropertyValue is int stVal)
             {
                 startTime = stVal;
             }
@@ -177,48 +198,51 @@ public class SessionInfoDisplay : MonoBehaviour
                 int elapsedSeconds = (int)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() - startTime);
                 _infoBuilder.AppendLine($"Time: {FormatTimespan(elapsedSeconds)}");
             }
-            else
-            {
-                _infoBuilder.AppendLine("Time: N/A");
-            }
+            else { _infoBuilder.AppendLine("Time: N/A"); }
         }
 
         // --- Connection/Status Details ---
-        if (_showPublicStatus && _runner.SessionInfo != null) // Renamed field, logic is the same
+        if (_showPublicStatus)
         {
             string statusText = _runner.SessionInfo.IsVisible ? "<color=green>Public</color>" : "<color=orange>Private</color>";
-            if (!_runner.SessionInfo.IsOpen) statusText += " <color=red>(Closed)</color>"; // Also show if closed
+            if (!_runner.SessionInfo.IsOpen) statusText += " <color=red>(Closed)</color>";
             _infoBuilder.AppendLine($"Status: {statusText}");
         }
         if (_showRunnerMode)
         {
             _infoBuilder.AppendLine($"Mode: {_runner.Mode}");
         }
-        if (_showIsHostStatus) // <-- ADDED
+        if (_showIsHostStatus)
         {
-            string hostStatus = _runner.IsServer ? "Yes" : "No";
-            _infoBuilder.AppendLine($"Is Host: {hostStatus}");
+            // --- CORRECTED: Use IsServer for Host/Server status ---
+            string hostStatus = _runner.IsServer ? "Yes (Server/Host)" : "No (Client)";
+            _infoBuilder.AppendLine($"Is Server: {hostStatus}");
         }
-        if (_showRegion && _runner.SessionInfo != null)
+        if (_showRegion)
         {
             string region = _runner.SessionInfo.Region ?? "N/A";
             _infoBuilder.AppendLine($"Region: {region.ToUpper()}");
         }
         if (_showPing)
         {
-            double rttSeconds = _runner.GetPlayerRtt(_runner.LocalPlayer);
-            int pingMs = (int)(rttSeconds * 1000);
-            _infoBuilder.AppendLine($"Ping: {pingMs} ms");
+            // --- CORRECTED: Check player ref against None ---
+            if (_runner.LocalPlayer != PlayerRef.None)
+            {
+                double rttSeconds = _runner.GetPlayerRtt(_runner.LocalPlayer);
+                int pingMs = Mathf.RoundToInt((float)(rttSeconds * 1000));
+                _infoBuilder.AppendLine($"Ping: {pingMs} ms");
+            }
+            else { _infoBuilder.AppendLine($"Ping: N/A"); }
         }
 
         // --- Player Details ---
         if (_showPlayerCount)
         {
-            int playerCount = _runner.ActivePlayers.Count();
-            int maxPlayers = _runner.SessionInfo?.MaxPlayers ?? _runner.Config.Simulation.PlayerCount;
+            int playerCount = _runner.ActivePlayers.Count(); // Current players
+            int maxPlayers = _runner.SessionInfo.MaxPlayers; // Max allowed
             _infoBuilder.AppendLine($"Players: {playerCount} / {maxPlayers}");
         }
-        if (_showLocalPlayerRef) // <-- ADDED
+        if (_showLocalPlayerRef)
         {
             _infoBuilder.AppendLine($"<color=#grey>Local Ref: {_runner.LocalPlayer}</color>");
         }
@@ -228,24 +252,32 @@ public class SessionInfoDisplay : MonoBehaviour
         AdjustBackgroundSize();
     }
 
-    // --- AdjustBackgroundSize() method remains the same ---
     private void AdjustBackgroundSize()
     {
-        if (_backgroundRect != null && _infoText != null)
-        {
-            float preferredWidth = _infoText.preferredWidth;
-            float preferredHeight = _infoText.preferredHeight;
-            float bgWidth = preferredWidth + _backgroundPadding.x * 2;
-            float bgHeight = preferredHeight + _backgroundPadding.y * 2;
-            bgWidth = Mathf.Max(200, bgWidth);
-            bgHeight = Mathf.Max(50, bgHeight);
-            _backgroundRect.sizeDelta = new Vector2(bgWidth, bgHeight);
-            LayoutRebuilder.ForceRebuildLayoutImmediate(_textRectTransform);
-        }
+        if (_backgroundRect == null || _infoText == null) return; // Need both elements
+
+        // Ensure canvas is up-to-date for accurate preferred size calculation
+        Canvas.ForceUpdateCanvases();
+
+        float preferredWidth = _infoText.preferredWidth;
+        float preferredHeight = _infoText.preferredHeight;
+
+        // Calculate background size including padding
+        float bgWidth = preferredWidth + _backgroundPadding.x * 2;
+        float bgHeight = preferredHeight + _backgroundPadding.y * 2;
+
+        // Optional: Enforce a minimum size for the background
+        bgWidth = Mathf.Max(200, bgWidth); // Example minimum width
+        bgHeight = Mathf.Max(50, bgHeight); // Example minimum height
+
+        // Apply the calculated size to the background RectTransform
+        _backgroundRect.sizeDelta = new Vector2(bgWidth, bgHeight);
+
+        // If the text or background is part of a Layout Group, might need to update layout
+        // LayoutRebuilder.ForceRebuildLayoutImmediate(_backgroundRect); // Uncomment if needed
     }
 
 
-    // --- FormatTimespan() method remains the same ---
     private string FormatTimespan(int totalSeconds)
     {
         if (totalSeconds < 0) totalSeconds = 0;
