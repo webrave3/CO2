@@ -2,11 +2,13 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System; // Keep for StringComparison etc.
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using Fusion;
-using System;
-using System.Threading.Tasks; // Keep for async methods
+// *** REMOVED Photon.Realtime ***
+using System.Threading.Tasks;
 
 public class JoinGameUI : MonoBehaviour
 {
@@ -18,12 +20,13 @@ public class JoinGameUI : MonoBehaviour
 
     [Header("Direct Join")]
     [SerializeField] private TMP_InputField _roomCodeInput;
+    [SerializeField] private TMP_InputField _passwordInput; // Keep this
     [SerializeField] private Button _directJoinButton;
 
     [Header("Matchmaking")]
     [SerializeField] private Button _matchmakingButton;
-    [SerializeField] private TMP_Dropdown _languageFilterDropdown; // Assign Language Dropdown
-    [SerializeField] private TMP_Dropdown _regionFilterDropdown;   // Assign Region Filter Dropdown
+    [SerializeField] private TMP_Dropdown _languageFilterDropdown;
+    [SerializeField] private TMP_Dropdown _regionFilterDropdown;
 
     [Header("Settings")]
     [SerializeField] private float _statusMessageDuration = 3f;
@@ -31,161 +34,126 @@ public class JoinGameUI : MonoBehaviour
     private NetworkRunnerHandler _networkRunnerHandler;
     private bool _isJoining = false;
     private Coroutine _statusMessageCoroutine;
+    private List<string> _languageOptions = new List<string> { "Any", "English", "Spanish", "French", "German", "Chinese", "Russian" };
 
     void Start()
     {
-        _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>();
-        if (_networkRunnerHandler == null)
-        {
-            Debug.LogError("NetworkRunnerHandler not found! Disabling Join Game UI.");
-            if (_joinGamePanel != null) _joinGamePanel.SetActive(false);
-            enabled = false;
-            return;
-        }
+         _networkRunnerHandler = FindObjectOfType<NetworkRunnerHandler>();
+         if (_networkRunnerHandler == null) { /* ... Error handling ... */ Debug.LogError("NetworkRunnerHandler not found!"); enabled = false; return; }
 
-        if (_statusText != null) _statusText.gameObject.SetActive(false);
-        if (_joiningIndicator != null) _joiningIndicator.SetActive(false);
+         if (_statusText != null) _statusText.gameObject.SetActive(false);
+         if (_joiningIndicator != null) _joiningIndicator.SetActive(false);
 
-        if (_backButton != null)
-        {
-            _backButton.onClick.AddListener(() => {
-                if (_joinGamePanel != null) _joinGamePanel.SetActive(false);
-                MainMenuUI mainMenu = FindObjectOfType<MainMenuUI>();
-                if (mainMenu != null) mainMenu.ShowMainPanel(); // Ensure MainMenuUI has ShowMainPanel()
-            });
-        }
+         if (_backButton != null) {
+             _backButton.onClick.AddListener(() => {
+                 if (_joinGamePanel != null) _joinGamePanel.SetActive(false);
+                 FindObjectOfType<MainMenuUI>()?.ShowMainPanel();
+             });
+         }
 
-        if (_directJoinButton != null) _directJoinButton.onClick.AddListener(OnDirectJoinClicked);
-        if (_matchmakingButton != null) _matchmakingButton.onClick.AddListener(OnMatchmakingClicked);
+         if (_directJoinButton != null) _directJoinButton.onClick.AddListener(OnDirectJoinClicked);
+         if (_matchmakingButton != null) _matchmakingButton.onClick.AddListener(OnMatchmakingClicked);
 
-        // --- Initialize Dropdowns ---
-        InitializeDropdown(_languageFilterDropdown, new List<string> { "Any", "English", "Estonian" }); // "Any" should be first
-        InitializeDropdown(_regionFilterDropdown, new List<string> { "Any", "NA East", "EU", "Asia" }); // "Any" first, match host options
+         // Initialize Dropdowns using static helpers from NetworkRunnerHandler
+         InitializeDropdown(_languageFilterDropdown, _languageOptions);
+         List<string> regionNames = NetworkRunnerHandler.GetRegionNames();
+         // Ensure "Any" is first, remove "Best"
+          if (!regionNames.Contains("Any", StringComparer.OrdinalIgnoreCase)) {
+             regionNames.RemoveAll(r => r.Equals("Best", StringComparison.OrdinalIgnoreCase));
+             regionNames.Insert(0, "Any");
+         } else {
+              regionNames.RemoveAll(r => r.Equals("Best", StringComparison.OrdinalIgnoreCase));
+              if (!regionNames[0].Equals("Any", StringComparison.OrdinalIgnoreCase)) {
+                   regionNames.RemoveAll(r => r.Equals("Any", StringComparison.OrdinalIgnoreCase));
+                   regionNames.Insert(0, "Any");
+              }
+         }
+         InitializeDropdown(_regionFilterDropdown, regionNames);
+
+         if(_passwordInput != null) _passwordInput.text = ""; // Clear password field initially
     }
 
     private void InitializeDropdown(TMP_Dropdown dropdown, List<string> options)
     {
-        if (dropdown != null)
-        {
-            dropdown.ClearOptions();
-            if (options != null && options.Count > 0)
-            {
-                dropdown.AddOptions(options);
-                dropdown.value = 0; // Default to "Any"
-            }
-        }
+        if (dropdown != null) { dropdown.ClearOptions(); if (options != null && options.Count > 0) { dropdown.AddOptions(options); dropdown.value = 0; } }
     }
 
-
-    // This should be called by MainMenuUI when the Join button is clicked
     public void ShowJoinPanel()
     {
         if (_joinGamePanel == null) return;
         _joinGamePanel.SetActive(true);
         if (_statusText != null) _statusText.gameObject.SetActive(false);
         if (_roomCodeInput != null) _roomCodeInput.text = "";
-        SetJoiningState(false); // Reset joining state
+        if (_passwordInput != null) _passwordInput.text = ""; // Clear password on show
+        SetJoiningState(false);
     }
 
     private async void OnDirectJoinClicked()
     {
-        if (_isJoining || _networkRunnerHandler == null) return; // Removed IsSessionActive check, handler handles this
+        if (_isJoining || _networkRunnerHandler == null) return;
 
-        string roomCode = _roomCodeInput.text.Trim(); // Don't force ToUpper if codes are case-sensitive (AdjectiveNoun)
-        if (string.IsNullOrEmpty(roomCode))
-        {
-            ShowStatusMessage("Please enter a room code", Color.yellow);
-            return;
-        }
+        string roomCode = _roomCodeInput?.text.Trim();
+        if (string.IsNullOrEmpty(roomCode)) { ShowStatusMessage("Please enter a room code", Color.yellow); return; }
+
+        string password = _passwordInput?.text; // Get password (can be empty/null)
 
         SetJoiningState(true, $"Joining room: {roomCode}...");
         bool joinStarted = false;
         try
         {
-            // Direct join uses the HASH code (the user-friendly one)
-            joinStarted = await _networkRunnerHandler.StartClientGameByHash(roomCode);
+            // Call handler - the StartClientGameByHash overload takes password string
+            joinStarted = await _networkRunnerHandler.StartClientGameByHash(roomCode, password);
 
-            // Check result *after* await completes
-            if (!joinStarted) // Handler's method returns false on failure to start
-            {
-                if (this != null && gameObject.activeInHierarchy) // Check if UI still exists
-                {
-                    ShowStatusMessage("Failed to find or connect to game.", Color.red);
-                    SetJoiningState(false);
-                }
-            }
-            // On success, NetworkRunnerHandler manages scene loading
+            if (!joinStarted) {
+                 if (this != null && gameObject != null && gameObject.activeInHierarchy) { // Check validity after await
+                     // Check if a specific error was already shown by OnConnectFailed
+                     if (_statusText == null || !_statusText.gameObject.activeSelf || _statusText.color != Color.red) {
+                        ShowStatusMessage("Failed to join. Check room code/password or console.", Color.red); // More informative message
+                     }
+                     SetJoiningState(false);
+                 }
+             }
+             // On success, scene loading is handled by NetworkRunnerHandler/Fusion
         }
-        catch (Exception ex)
-        {
-            Debug.LogError($"Error during direct join: {ex.Message}\n{ex.StackTrace}");
-            if (this != null && gameObject.activeInHierarchy)
-            {
-                ShowStatusMessage($"Error: {ex.Message}", Color.red);
-                SetJoiningState(false);
-            }
+        catch (Exception ex) { // Catch potential exceptions (like if StartClientGameByHash throws)
+             Debug.LogError($"Error during direct join: {ex.Message}\n{ex.StackTrace}");
+             if (this != null && gameObject != null && gameObject.activeInHierarchy) { ShowStatusMessage($"Error: {ex.Message}", Color.red); SetJoiningState(false); }
         }
-        // If joinStarted was true but runner isn't running (e.g., immediate disconnect), OnShutdown handles UI reset
     }
 
     private async void OnMatchmakingClicked()
     {
-        if (_isJoining || _networkRunnerHandler == null) return; // Removed IsSessionActive check
+         if (_isJoining || _networkRunnerHandler == null) return;
+         SetJoiningState(true, "Searching for a public game...");
 
-        SetJoiningState(true, "Searching for a public game...");
+         Dictionary<string, SessionProperty> filters = new Dictionary<string, SessionProperty>();
+         // Language Filter (if not "Any")
+         if (_languageFilterDropdown != null && _languageFilterDropdown.value > 0) {
+             filters[NetworkRunnerHandler.SESSION_LANGUAGE_KEY] = _languageFilterDropdown.options[_languageFilterDropdown.value].text;
+             Debug.Log($"Filtering matchmaking by Language: {filters[NetworkRunnerHandler.SESSION_LANGUAGE_KEY]}");
+         }
+         // Region Filter (if not "Any")
+         if (_regionFilterDropdown != null && _regionFilterDropdown.value > 0) {
+              string regionText = _regionFilterDropdown.options[_regionFilterDropdown.value].text;
+              // Pass the user-friendly text as the filter preference
+             filters[NetworkRunnerHandler.SESSION_REGION_KEY] = regionText;
+              Debug.Log($"Filtering matchmaking by Region Preference: {regionText}");
+         } else {
+              Debug.Log("No specific region preference set for matchmaking.");
+         }
 
-        // --- Prepare Filters from UI ---
-        Dictionary<string, SessionProperty> filters = new Dictionary<string, SessionProperty>();
 
-        // Get language filter
-        if (_languageFilterDropdown != null && _languageFilterDropdown.value > 0) // Index 0 is "Any"
-        {
-            string selectedLanguage = _languageFilterDropdown.options[_languageFilterDropdown.value].text;
-            // Use the constant key defined in NetworkRunnerHandler (Make sure it's defined there)
-            filters[NetworkRunnerHandler.SESSION_LANGUAGE_KEY] = selectedLanguage;
-            Debug.Log($"Filtering matchmaking by language: {selectedLanguage}");
-        }
-
-        // --- Get Region Preference ---
-        // Add region to filters if not "Any"
-        if (_regionFilterDropdown != null && _regionFilterDropdown.value > 0) // Index 0 is "Any"
-        {
-            string selectedRegionText = _regionFilterDropdown.options[_regionFilterDropdown.value].text;
-            // Use the constant key defined in NetworkRunnerHandler (Make sure it's defined there)
-            filters[NetworkRunnerHandler.SESSION_REGION_KEY] = selectedRegionText;
-            Debug.Log($"Filtering matchmaking by region preference: {selectedRegionText}");
-        }
-
-        // Add other filters similarly...
-        // e.g., filters["difficulty"] = "Normal";
-
-        // --- CORRECTED Call to FindAndJoinPublicGame ---
-        bool matchmakingJoinStarted = false;
-        try
-        {
-            // Pass ONLY the filters dictionary
-            matchmakingJoinStarted = await _networkRunnerHandler.FindAndJoinPublicGame(filters);
-
-            if (!matchmakingJoinStarted)
-            {
-                if (this != null && gameObject.activeInHierarchy)
-                {
-                    ShowStatusMessage("No suitable public games found.", Color.yellow);
-                    SetJoiningState(false);
-                    // Optional: Add logic here to offer hosting a game instead
-                }
-            }
-            // On success, NetworkRunnerHandler handles scene loading
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError($"Error during matchmaking: {ex.Message}\n{ex.StackTrace}");
-            if (this != null && gameObject.activeInHierarchy)
-            {
-                ShowStatusMessage($"Error: {ex.Message}", Color.red);
-                SetJoiningState(false);
-            }
-        }
+         bool matchmakingJoinStarted = false;
+         try {
+             matchmakingJoinStarted = await _networkRunnerHandler.FindAndJoinPublicGame(filters);
+             if (!matchmakingJoinStarted) {
+                  if (this != null && gameObject != null && gameObject.activeInHierarchy) { ShowStatusMessage("No suitable public games found.", Color.yellow); SetJoiningState(false); }
+             }
+             // On success, scene loading handled by Handler/Fusion
+         } catch (Exception ex) {
+              Debug.LogError($"Error during matchmaking: {ex.Message}\n{ex.StackTrace}");
+              if (this != null && gameObject != null && gameObject.activeInHierarchy) { ShowStatusMessage($"Error: {ex.Message}", Color.red); SetJoiningState(false); }
+         }
     }
 
 
@@ -193,31 +161,28 @@ public class JoinGameUI : MonoBehaviour
     {
         _isJoining = isJoining;
         if (_joiningIndicator != null) _joiningIndicator.SetActive(isJoining);
+        // Set interactable state for UI elements
         if (_directJoinButton != null) _directJoinButton.interactable = !isJoining;
         if (_matchmakingButton != null) _matchmakingButton.interactable = !isJoining;
         if (_backButton != null) _backButton.interactable = !isJoining;
         if (_roomCodeInput != null) _roomCodeInput.interactable = !isJoining;
-        // Disable filter dropdowns while joining
+        if (_passwordInput != null) _passwordInput.interactable = !isJoining;
         if (_languageFilterDropdown != null) _languageFilterDropdown.interactable = !isJoining;
         if (_regionFilterDropdown != null) _regionFilterDropdown.interactable = !isJoining;
 
-
-        if (isJoining && !string.IsNullOrEmpty(statusMessage))
-        {
-            ShowStatusMessage(statusMessage, Color.white, 0); // Use duration 0 for persistent message
-        }
-        else if (!isJoining && _statusText != null && _statusText.gameObject.activeSelf && _statusText.color == Color.white)
-        {
-            // Hide persistent "Joining..." message if we are no longer joining
-            _statusText.gameObject.SetActive(false);
+        // Handle persistent "Joining..." message
+        if (isJoining && !string.IsNullOrEmpty(statusMessage)) {
+            ShowStatusMessage(statusMessage, Color.white, 0); // Persistent
+        } else if (!isJoining && _statusText != null && _statusText.gameObject.activeSelf && _statusText.color == Color.white && _statusMessageCoroutine == null) {
+            _statusText.gameObject.SetActive(false); // Hide persistent message if no longer joining AND no timed message is active
         }
     }
 
-    // Use duration 0 for persistent, negative for default duration, positive for specific duration
-    private void ShowStatusMessage(string message, Color color, float duration = -1f)
+    // Public method to allow NetworkRunnerHandler (e.g., in OnConnectFailed) to show status messages
+    public void ShowStatusMessage(string message, Color color, float duration = -1f)
     {
         if (_statusText == null) return;
-        if (_statusMessageCoroutine != null) StopCoroutine(_statusMessageCoroutine);
+        if (_statusMessageCoroutine != null) { StopCoroutine(_statusMessageCoroutine); _statusMessageCoroutine = null; }
 
         _statusText.text = message;
         _statusText.color = color;
@@ -225,14 +190,7 @@ public class JoinGameUI : MonoBehaviour
 
         float actualDuration = (duration == 0) ? 0 : (duration < 0 ? _statusMessageDuration : duration);
 
-        if (actualDuration > 0)
-        {
-            _statusMessageCoroutine = StartCoroutine(HideStatusAfterDelay(actualDuration));
-        }
-        else // If duration is 0 (persistent) or invalid, ensure coroutine reference is null
-        {
-            _statusMessageCoroutine = null;
-        }
+        if (actualDuration > 0) { _statusMessageCoroutine = StartCoroutine(HideStatusAfterDelay(actualDuration)); }
     }
 
     private IEnumerator HideStatusAfterDelay(float delay)
@@ -244,7 +202,6 @@ public class JoinGameUI : MonoBehaviour
 
     private void OnDestroy()
     {
-        // Stop coroutine if object is destroyed to prevent errors
         if (_statusMessageCoroutine != null) StopCoroutine(_statusMessageCoroutine);
     }
 }
