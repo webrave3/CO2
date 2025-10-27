@@ -178,17 +178,24 @@ public class MainMenuUI : MonoBehaviour
 
         // --- Prepare Custom Session Properties ---
         var customSessionProperties = new Dictionary<string, SessionProperty>();
-        // Add any *other* custom properties here if needed (language is now a direct parameter)
+
+        // Add language using the defined key (Make sure SESSION_LANGUAGE_KEY is defined in NetworkRunnerHandler)
+        customSessionProperties[NetworkRunnerHandler.SESSION_LANGUAGE_KEY] = selectedLanguage;
+        Debug.Log($"[HOST] Adding property: {NetworkRunnerHandler.SESSION_LANGUAGE_KEY} = {selectedLanguage}");
+
+        // Add region using the defined key (Make sure SESSION_REGION_KEY is defined in NetworkRunnerHandler)
+        customSessionProperties[NetworkRunnerHandler.SESSION_REGION_KEY] = selectedRegionText; // Storing region text, Photon uses AppSettings for actual connection region
+        Debug.Log($"[HOST] Adding property: {NetworkRunnerHandler.SESSION_REGION_KEY} = {selectedRegionText}");
+
+        // Add any *other* custom properties here if needed
         // customSessionProperties["difficulty"] = "Normal"; // Example
 
         // --- CORRECTED Call to StartHostGame ---
-        // Pass all parameters explicitly matching the NetworkRunnerHandler method signature
+        // Pass only the parameters defined in the method signature
         await _networkRunnerHandler.StartHostGame(
             sessionNameBase: sessionName,
             isVisible: isVisible,
-            regionText: selectedRegionText, // Pass region text
-            language: selectedLanguage,     // Pass language string
-            customProps: customSessionProperties
+            customProps: customSessionProperties // Pass the dictionary
         );
 
         // Check if starting failed (Runner might be null or not running after await)

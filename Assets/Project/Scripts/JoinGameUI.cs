@@ -141,19 +141,19 @@ public class JoinGameUI : MonoBehaviour
         if (_languageFilterDropdown != null && _languageFilterDropdown.value > 0) // Index 0 is "Any"
         {
             string selectedLanguage = _languageFilterDropdown.options[_languageFilterDropdown.value].text;
-            // Use the constant key defined in NetworkRunnerHandler
+            // Use the constant key defined in NetworkRunnerHandler (Make sure it's defined there)
             filters[NetworkRunnerHandler.SESSION_LANGUAGE_KEY] = selectedLanguage;
             Debug.Log($"Filtering matchmaking by language: {selectedLanguage}");
         }
 
         // --- Get Region Preference ---
-        string selectedRegionText = null; // Null means "Any" or "Best" for FindAndJoinPublicGame
+        // Add region to filters if not "Any"
         if (_regionFilterDropdown != null && _regionFilterDropdown.value > 0) // Index 0 is "Any"
         {
-            selectedRegionText = _regionFilterDropdown.options[_regionFilterDropdown.value].text;
+            string selectedRegionText = _regionFilterDropdown.options[_regionFilterDropdown.value].text;
+            // Use the constant key defined in NetworkRunnerHandler (Make sure it's defined there)
+            filters[NetworkRunnerHandler.SESSION_REGION_KEY] = selectedRegionText;
             Debug.Log($"Filtering matchmaking by region preference: {selectedRegionText}");
-            // Note: Region filtering happens in FindAndJoinPublicGame based on this string,
-            // no need to add it to the 'filters' dictionary unless your host *also* sets a custom region property.
         }
 
         // Add other filters similarly...
@@ -163,8 +163,8 @@ public class JoinGameUI : MonoBehaviour
         bool matchmakingJoinStarted = false;
         try
         {
-            // Pass region string first, then the filters dictionary
-            matchmakingJoinStarted = await _networkRunnerHandler.FindAndJoinPublicGame(selectedRegionText, filters);
+            // Pass ONLY the filters dictionary
+            matchmakingJoinStarted = await _networkRunnerHandler.FindAndJoinPublicGame(filters);
 
             if (!matchmakingJoinStarted)
             {

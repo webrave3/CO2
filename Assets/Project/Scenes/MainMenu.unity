@@ -2137,7 +2137,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &300061665
 RectTransform:
   m_ObjectHideFlags: 0
@@ -5266,6 +5266,8 @@ MonoBehaviour:
   _statusText: {fileID: 0}
   _hostSessionNameInput: {fileID: 605507560}
   _isPublicToggle: {fileID: 1463093497}
+  _hostLanguageDropdown: {fileID: 0}
+  _hostRegionDropdown: {fileID: 0}
   _joinGameUI: {fileID: 1176262587}
   _defaultSessionName: GameSession
   _mainPanel: {fileID: 1205263576}
@@ -5273,11 +5275,6 @@ MonoBehaviour:
   _joinGamePanel: {fileID: 1176262583}
   _settingsPanel: {fileID: 1145881281}
   _loadingPanel: {fileID: 1162811813}
-  _hostGameNavButton: {fileID: 1882487525}
-  _joinGameNavButton: {fileID: 1123163206}
-  _settingsNavButton: {fileID: 198844556}
-  _regionDropdown: {fileID: 620339999}
-  _useAllRegions: 1
 --- !u!4 &1034304500
 Transform:
   m_ObjectHideFlags: 0

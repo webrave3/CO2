@@ -41,6 +41,9 @@ public class NetworkRunnerHandler : MonoBehaviour, INetworkRunnerCallbacks
     private List<SessionInfo> _availableSessions = new List<SessionInfo>();
     private bool _isJoining = false; // Flag to prevent multiple join attempts
 
+    public const string SESSION_LANGUAGE_KEY = "lang"; // Key for language property
+    public const string SESSION_REGION_KEY = "reg";   // Key for region property (Using short keys)
+
     // Public properties
     public NetworkRunner Runner => _runner;
     public bool IsSessionActive => _runner != null && _runner.IsRunning;
