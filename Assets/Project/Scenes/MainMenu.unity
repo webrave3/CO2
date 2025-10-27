@@ -8893,7 +8893,7 @@ GameObject:
   - component: {fileID: 1410391541}
   - component: {fileID: 1410391540}
   m_Layer: 5
-  m_Name: HostButton
+  m_Name: StartHostButton
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
